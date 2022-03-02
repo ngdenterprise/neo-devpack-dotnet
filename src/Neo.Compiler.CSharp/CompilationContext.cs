@@ -325,6 +325,101 @@ namespace Neo.Compiler
             };
         }
 
+        static void WriteArray(System.Text.Json.Utf8JsonWriter writer, string name, IEnumerable<string> values)
+        {
+            writer.WritePropertyName(name);
+            writer.WriteStartArray();
+            foreach (var value in values)
+            {
+                writer.WriteStringValue(value);
+            }
+            writer.WriteEndArray();
+        }
+
+        public void WriteDebugInfo(System.Text.Json.Utf8JsonWriter writer, SmartContract.NefFile nef)
+        {
+            string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();
+            var visitor = new Visitor(compilation);
+
+            writer.WriteStartObject();
+            writer.WriteString("hash", $"{nef.Script.ToScriptHash()}");
+            writer.WriteString("checksum", $"{nef.CheckSum}");
+            WriteArray(writer, "documents", sourceLocations);
+            
+            var statics = staticFields.OrderBy(kvp => kvp.Value)
+                .Select(t => $"{t.Key.Name},{visitor.Visit(t.Key.Type).AsString()},{t.Value}");
+            WriteArray(writer, "static-variables", statics);
+
+            writer.WritePropertyName("methods");
+            writer.WriteStartArray();
+            foreach (var m in methodsConverted.Where(p => p.SyntaxNode is not null))
+            {
+                writer.WriteStartObject();
+
+                writer.WriteString("id", m.Symbol.Name);
+                writer.WriteString("name", $"{m.Symbol.ContainingType},{m.Symbol.Name}");
+                writer.WriteString("range", $"{m.Instructions[0].Offset}-{m.Instructions[^1].Offset}");
+
+                writer.WritePropertyName("params");
+                writer.WriteStartArray();
+                if (m.Symbol.IsStatic)
+                {
+                    writer.WriteStringValue($"#this,{visitor.Visit(m.Symbol.ContainingSymbol).AsString()}");
+                }
+                foreach (var param in m.Symbol.Parameters)
+                {
+                    writer.WriteStringValue($"{param.Name},{visitor.Visit(param.Type).AsString()}");
+                }
+                writer.WriteEndArray();
+
+                var @return = visitor.Visit(m.Symbol.ReturnType) switch
+                {
+                    VoidContractType => "#Void",
+                    ContractType t => t.AsString(),
+                    _ => UnspecifiedContractType.Unspecified.AsString(),
+                };
+                writer.WriteString("return", @return);
+
+                var vars = m.Variables
+                    .Select(v =>$"{v.Symbol.Name},{(visitor.Visit(v.Symbol.Type).AsString())},{v.SlotIndex}");
+                WriteArray(writer, "variables", vars);
+
+                var sequencePoints = m.Instructions
+                    .Where(p => p.SourceLocation is not null)
+                    .Select(p =>
+                    {
+                        FileLinePositionSpan span = p.SourceLocation!.GetLineSpan();
+                        var index = Array.IndexOf(sourceLocations, p.SourceLocation.SourceTree!.FilePath);
+                        return $"{p.Offset}[{index}]{span.StartLinePosition.Line + 1}:{span.StartLinePosition.Character + 1}-{span.EndLinePosition.Line + 1}:{span.EndLinePosition.Character + 1}";
+                    });
+                WriteArray(writer, "sequence-points", sequencePoints);
+
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WritePropertyName("events");
+            writer.WriteStartArray();
+            foreach (var e in eventsExported)
+            {
+                writer.WriteStartObject();
+
+                writer.WriteString("id", e.Symbol.Name);
+                writer.WriteString("name", $"{e.Symbol.ContainingType},{e.Symbol.Name}");
+
+                var symbol = (IEventSymbol)e.Symbol;
+                var method = ((INamedTypeSymbol)symbol.Type).DelegateInvokeMethod ?? throw new Exception();
+                var @params = method.Parameters
+                    .Select(p => $"{p.Name},{visitor.Visit(p.Type).AsString()}");
+                WriteArray(writer, "params", @params);
+    
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteEndObject();
+        }
+
         public JObject CreateDebugInformation()
         {
             string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();

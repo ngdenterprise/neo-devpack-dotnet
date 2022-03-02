@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neo.Compiler.CSharp.UnitTests.Utils;
 using Neo.VM.Types;
 using System.Linq;
+using VMPrimitiveType = Neo.VM.Types.PrimitiveType;
 
 namespace Neo.Compiler.CSharp.UnitTests
 {
@@ -18,7 +19,7 @@ namespace Neo.Compiler.CSharp.UnitTests
             var arr = result.Pop<Array>();
             Assert.AreEqual(4, arr.Count);
             var element0 = (Array)arr[0];
-            CollectionAssert.AreEqual(new int[] { 1, 2, 3, 4 }, element0.Cast<PrimitiveType>().Select(u => (int)u.GetInteger()).ToArray());
+            CollectionAssert.AreEqual(new int[] { 1, 2, 3, 4 }, element0.Cast<VMPrimitiveType>().Select(u => (int)u.GetInteger()).ToArray());
         }
 
         [TestMethod]
@@ -43,7 +44,7 @@ namespace Neo.Compiler.CSharp.UnitTests
 
             //test 0,1,2
             var arr = result.Pop<Array>();
-            CollectionAssert.AreEqual(new int[] { 0, 1, 2 }, arr.Cast<PrimitiveType>().Select(u => (int)u.GetInteger()).ToArray());
+            CollectionAssert.AreEqual(new int[] { 0, 1, 2 }, arr.Cast<VMPrimitiveType>().Select(u => (int)u.GetInteger()).ToArray());
         }
 
         [TestMethod]
