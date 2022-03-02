@@ -338,8 +338,20 @@ namespace Neo.Compiler
 
         public void WriteDebugInfo(System.Text.Json.Utf8JsonWriter writer, SmartContract.NefFile nef)
         {
-            string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();
             var visitor = new Visitor(compilation);
+            string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();
+            var structs = compilation.SyntaxTrees
+                .Select(t => (
+                    model: compilation.GetSemanticModel(t),
+                    root: t.GetRoot()))
+                .SelectMany(a => a.root.DescendantNodes()
+                    .OfType<ClassDeclarationSyntax>()
+                    .Select(c => a.model.GetDeclaredSymbol(c))
+                    .Concat(a.root.DescendantNodes()
+                        .OfType<StructDeclarationSyntax>()
+                        .Select(c => a.model.GetDeclaredSymbol(c))))
+                .Where(s => s is not null)
+                .Cast<INamedTypeSymbol>();
 
             writer.WriteStartObject();
             writer.WriteString("hash", $"{nef.Script.ToScriptHash()}");
@@ -413,6 +425,23 @@ namespace Neo.Compiler
                     .Select(p => $"{p.Name},{visitor.Visit(p.Type).AsString()}");
                 WriteArray(writer, "params", @params);
     
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WritePropertyName("structs");
+            writer.WriteStartArray();
+            foreach (var s in structs)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", s.Name);
+                writer.WriteString("name", $"{s}");
+
+                var fields = s.GetMembers()
+                    .OfType<IFieldSymbol>()
+                    .Where(f => !(f.HasConstantValue))
+                    .Select(f => $"{f.Name},{visitor.Visit(f.Type).AsString()}");
+                WriteArray(writer, "fields", fields);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();

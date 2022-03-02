@@ -19,15 +19,10 @@ namespace Neo.Compiler
     }
 
     public abstract record ContractType();
-    public record UnspecifiedContractType() : ContractType
-    {
-        public readonly static UnspecifiedContractType Unspecified = new UnspecifiedContractType();
-    }
-    public record VoidContractType() : ContractType
-    {
-        public readonly static VoidContractType Void = new VoidContractType();
-    }
 
+    public record ArrayContractType(ContractType Type) : ContractType;
+    public record InteropContractType(INamedTypeSymbol Symbol) : ContractType;
+    public record MapContractType(PrimitiveType KeyType, ContractType ValueType) : ContractType;
     public record PrimitiveContractType(PrimitiveType Type) : ContractType
     {
         public readonly static PrimitiveContractType Address = new PrimitiveContractType(PrimitiveType.Address);
@@ -40,29 +35,29 @@ namespace Neo.Compiler
         public readonly static PrimitiveContractType Signature = new PrimitiveContractType(PrimitiveType.Signature);
         public readonly static PrimitiveContractType String = new PrimitiveContractType(PrimitiveType.String);
     }
-    public record ArrayContractType(ContractType Type) : ContractType;
-    public record MapContractType(PrimitiveType KeyType, ContractType ValueType) : ContractType;
-    // public record StructContractType(string Name, IReadOnlyList<(string Name, ContractType Type)> Fields) : ContractType;
-
-    public record BuiltInSymbolContractType(INamedTypeSymbol Symbol) : ContractType;
     public record SymbolContractType(INamedTypeSymbol Symbol) : ContractType;
-    public record InteropContractType(INamedTypeSymbol Symbol) : ContractType;
+    public record UnspecifiedContractType() : ContractType
+    {
+        public readonly static UnspecifiedContractType Unspecified = new UnspecifiedContractType();
+    }
+    public record VoidContractType() : ContractType
+    {
+        public readonly static VoidContractType Void = new VoidContractType();
+    }
 
-    static class Extensions
+    static class ContractTypeExtensions
     {
         public static string AsString(this ContractType? type)
         {
             type ??= UnspecifiedContractType.Unspecified;
             return type switch
             {
-                UnspecifiedContractType => "#Unspecified",
-                PrimitiveContractType p => $"#{p.Type}",
                 ArrayContractType a => $"Array<{a.Type.AsString()}>",
+                InteropContractType i => $"Interop<{i.Symbol}>",
                 MapContractType m => $"Map<#{m.KeyType},{m.ValueType.AsString()}>",
-                InteropContractType i => $"Interop<{i.Symbol.Name}>",
+                PrimitiveContractType p => $"#{p.Type}",
                 SymbolContractType s => s.Symbol.ToString() ?? throw new Exception(),
-                BuiltInSymbolContractType s => s.Symbol.ToString() ?? throw new Exception(),
-
+                UnspecifiedContractType => "#Unspecified",
                 VoidContractType => throw new NotSupportedException($"{nameof(AsString)} {nameof(VoidContractType)}"),
                 _ => throw new NotImplementedException($"{nameof(AsString)} {type.GetType().Name}"),
             };
@@ -119,7 +114,7 @@ namespace Neo.Compiler
                 SpecialType.System_UInt64 => PrimitiveContractType.Integer,
                 SpecialType.System_Object => UnspecifiedContractType.Unspecified,
                 SpecialType.None => ConvertSymbol(symbol),
-                _ => throw new NotImplementedException($"SpecialType {symbol.SpecialType}")
+                _ => throw new NotSupportedException($"SpecialType {symbol.SpecialType}")
             }; 
         }
 
@@ -162,13 +157,6 @@ namespace Neo.Compiler
                 }
 
                 return UnspecifiedContractType.Unspecified;
-            }
-
-            var foo = symbol.ToString();
-
-            if (comparer.Equals(symbol.ContainingAssembly, scfx))
-            {
-                return new BuiltInSymbolContractType(symbol);
             }
 
             return new SymbolContractType(symbol);
