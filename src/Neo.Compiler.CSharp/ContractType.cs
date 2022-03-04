@@ -69,9 +69,6 @@ namespace Neo.Compiler
 
     class Visitor : SymbolVisitor<ContractType>
     {
-        readonly Compilation compilation;
-
-        readonly IAssemblySymbol scfx;
         readonly INamedTypeSymbol? address;
         readonly INamedTypeSymbol apiInterface;
         readonly INamedTypeSymbol bigInt;
@@ -84,8 +81,6 @@ namespace Neo.Compiler
 
         public Visitor(Compilation compilation)
         {
-            this.compilation = compilation;
-
             address = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.Address");
             apiInterface = compilation.FindType("Neo.SmartContract.Framework.IApiInterface");
             bigInt = compilation.FindType("System.Numerics.BigInteger");
@@ -95,8 +90,6 @@ namespace Neo.Compiler
             map = compilation.FindType("Neo.SmartContract.Framework.Map`2");
             uint160 = compilation.FindType("Neo.UInt160");
             uint256 = compilation.FindType("Neo.UInt256");
-
-            scfx = uint160.ContainingAssembly;
         }
 
         public override ContractType? VisitNamedType(INamedTypeSymbol symbol)
