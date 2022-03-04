@@ -350,12 +350,14 @@ namespace Neo.Compiler
                     .Concat(a.root.DescendantNodes()
                         .OfType<StructDeclarationSyntax>()
                         .Select(c => a.model.GetDeclaredSymbol(c))))
-                .Where(s => s is not null)
-                .Cast<INamedTypeSymbol>();
+                .OfType<INamedTypeSymbol>()
+                // temp while I have expected infrastructure types in project 
+                .Where(t => !$"{t.ContainingSymbol}".StartsWith("Neo."));
 
             writer.WriteStartObject();
+            writer.WriteNumber("version", 2);
             writer.WriteString("hash", $"{nef.Script.ToScriptHash()}");
-            writer.WriteString("checksum", $"{nef.CheckSum}");
+            writer.WriteNumber("checksum", nef.CheckSum);
             WriteArray(writer, "documents", sourceLocations);
             
             var statics = staticFields.OrderBy(kvp => kvp.Value)
@@ -433,14 +435,16 @@ namespace Neo.Compiler
             writer.WriteStartArray();
             foreach (var s in structs)
             {
+                var fields = s.GetAllMembers()
+                    .OfType<IFieldSymbol>()
+                    .Where(f => !f.HasConstantValue && !f.IsStatic)
+                    .Select(f => $"{f.Name},{visitor.Visit(f.Type).AsString()}");
+
+                if (!fields.Any()) continue;
+
                 writer.WriteStartObject();
                 writer.WriteString("id", s.Name);
                 writer.WriteString("name", $"{s}");
-
-                var fields = s.GetMembers()
-                    .OfType<IFieldSymbol>()
-                    .Where(f => !(f.HasConstantValue))
-                    .Select(f => $"{f.Name},{visitor.Visit(f.Type).AsString()}");
                 WriteArray(writer, "fields", fields);
                 writer.WriteEndObject();
             }

@@ -56,12 +56,15 @@ namespace Neo.Compiler
                 InteropContractType i => $"Interop<{i.Symbol}>",
                 MapContractType m => $"Map<#{m.KeyType},{m.ValueType.AsString()}>",
                 PrimitiveContractType p => $"#{p.Type}",
-                SymbolContractType s => s.Symbol.ToString() ?? throw new Exception(),
+                SymbolContractType s => $"{s.Symbol.ContainingSymbol}.{s.Symbol.Name}",
                 UnspecifiedContractType => "#Unspecified",
                 VoidContractType => throw new NotSupportedException($"{nameof(AsString)} {nameof(VoidContractType)}"),
                 _ => throw new NotImplementedException($"{nameof(AsString)} {type.GetType().Name}"),
             };
         }
+
+        public static INamedTypeSymbol FindType(this Compilation compilation, string name)
+            => compilation.GetTypeByMetadataName(name) ?? throw new Exception($"{name} type not found");
     }
 
     class Visitor : SymbolVisitor<ContractType>
@@ -69,27 +72,29 @@ namespace Neo.Compiler
         readonly Compilation compilation;
 
         readonly IAssemblySymbol scfx;
-        readonly INamedTypeSymbol ecPoint;
+        readonly INamedTypeSymbol? address;
+        readonly INamedTypeSymbol apiInterface;
+        readonly INamedTypeSymbol bigInt;
         readonly INamedTypeSymbol byteString;
+        readonly INamedTypeSymbol ecPoint;
+        readonly INamedTypeSymbol list;
+        readonly INamedTypeSymbol map;
         readonly INamedTypeSymbol uint160;
         readonly INamedTypeSymbol uint256;
-        readonly INamedTypeSymbol bigInt;
-        readonly INamedTypeSymbol map;
-        readonly INamedTypeSymbol list;
-        readonly INamedTypeSymbol apiInterface;
 
         public Visitor(Compilation compilation)
         {
             this.compilation = compilation;
 
-            ecPoint = compilation.GetTypeByMetadataName("Neo.Cryptography.ECC.ECPoint") ?? throw new Exception();
-            byteString = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.ByteString") ?? throw new Exception();
-            uint160 = compilation.GetTypeByMetadataName("Neo.UInt160") ?? throw new Exception();
-            uint256 = compilation.GetTypeByMetadataName("Neo.UInt256") ?? throw new Exception();
-            bigInt = compilation.GetTypeByMetadataName("System.Numerics.BigInteger") ?? throw new Exception();
-            map = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.Map`2") ?? throw new Exception();
-            list = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.List`1") ?? throw new Exception();
-            apiInterface = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.IApiInterface") ?? throw new Exception();
+            address = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.Address");
+            apiInterface = compilation.FindType("Neo.SmartContract.Framework.IApiInterface");
+            bigInt = compilation.FindType("System.Numerics.BigInteger");
+            byteString = compilation.FindType("Neo.SmartContract.Framework.ByteString");
+            ecPoint = compilation.FindType("Neo.Cryptography.ECC.ECPoint");
+            list = compilation.FindType("Neo.SmartContract.Framework.List`1");
+            map = compilation.FindType("Neo.SmartContract.Framework.Map`2");
+            uint160 = compilation.FindType("Neo.UInt160");
+            uint256 = compilation.FindType("Neo.UInt256");
 
             scfx = uint160.ContainingAssembly;
         }
@@ -129,19 +134,20 @@ namespace Neo.Compiler
 
         ContractType? ConvertSymbol(INamedTypeSymbol symbol)
         {
-            var comparer = SymbolEqualityComparer.Default;
-            if (comparer.Equals(symbol, bigInt)) return PrimitiveContractType.Integer;
-            if (comparer.Equals(symbol, uint160)) return PrimitiveContractType.Hash160;
-            if (comparer.Equals(symbol, uint256)) return PrimitiveContractType.Hash256;
-            if (comparer.Equals(symbol, byteString)) return PrimitiveContractType.ByteArray;
-            if (comparer.Equals(symbol, ecPoint)) return PrimitiveContractType.PublicKey;
+            Func<ISymbol?, ISymbol?, bool> equals = SymbolEqualityComparer.Default.Equals;
+            if (equals(symbol, address)) return PrimitiveContractType.Address;
+            if (equals(symbol, bigInt)) return PrimitiveContractType.Integer;
+            if (equals(symbol, byteString)) return PrimitiveContractType.ByteArray;
+            if (equals(symbol, ecPoint)) return PrimitiveContractType.PublicKey;
+            if (equals(symbol, uint160)) return PrimitiveContractType.Hash160;
+            if (equals(symbol, uint256)) return PrimitiveContractType.Hash256;
 
-            if (symbol.AllInterfaces.Any(i => comparer.Equals(i, apiInterface)))
+            if (symbol.AllInterfaces.Any(i => equals(i, apiInterface)))
                 return new InteropContractType(symbol);
 
             if (symbol.IsGenericType)
             {
-                if (comparer.Equals(map, symbol.ConstructedFrom))
+                if (equals(map, symbol.ConstructedFrom))
                 {
                     var key = Visit(symbol.TypeArguments[0]) as PrimitiveContractType;
                     if (key is null) throw new Exception("Invalid Map Key Type");
@@ -150,7 +156,7 @@ namespace Neo.Compiler
                     return new MapContractType(key.Type, value);
                 }
 
-                if (comparer.Equals(map, symbol.ConstructedFrom))
+                if (equals(map, symbol.ConstructedFrom))
                 {
                     var type = Visit(symbol.TypeArguments[0]) ?? UnspecifiedContractType.Unspecified;
                     return new ArrayContractType(type);
