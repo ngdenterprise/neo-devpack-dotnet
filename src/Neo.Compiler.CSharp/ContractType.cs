@@ -54,7 +54,7 @@ namespace Neo.Compiler
             {
                 ArrayContractType a => $"Array<{a.Type.AsString()}>",
                 InteropContractType i => $"Interop<{i.Symbol}>",
-                MapContractType m => $"Map<#{m.KeyType},{m.ValueType.AsString()}>",
+                MapContractType m => $"Map<#{m.KeyType}:{m.ValueType.AsString()}>",
                 PrimitiveContractType p => $"#{p.Type}",
                 SymbolContractType s => $"{s.Symbol.ContainingSymbol}.{s.Symbol.Name}",
                 UnspecifiedContractType => "#Unspecified",
