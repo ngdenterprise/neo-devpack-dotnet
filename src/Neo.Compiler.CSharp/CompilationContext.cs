@@ -454,6 +454,20 @@ namespace Neo.Compiler
             }
             writer.WriteEndArray();
 
+            // Storages Current Algorithm
+            // for each type declaration that has a StorageSchemaAttribute:
+            //  * for each property member w/ a StorageGroup attribute 
+            //     * storage name is member name
+            //     * storage key prefix in attribue
+            //     * if get method is type that implements IStorageGroup
+            //        * all type args but last are key segments types
+            //           * how to get segment names? 
+            //        * last type arg is value type
+            //     * else
+            //        * must have set method
+            //        * zero key segments
+            //        * property type is value type
+
             writer.WriteEndObject();
         }
 
