@@ -27,6 +27,7 @@ using System.Reflection;
 using System.Text;
 using System.Xml.Linq;
 using Diagnostic = Microsoft.CodeAnalysis.Diagnostic;
+using Utf8JsonWriter = System.Text.Json.Utf8JsonWriter;
 
 namespace Neo.Compiler
 {
@@ -325,7 +326,7 @@ namespace Neo.Compiler
             };
         }
 
-        static void WriteArray(System.Text.Json.Utf8JsonWriter writer, string name, IEnumerable<string> values)
+        static void WriteArray(Utf8JsonWriter writer, string name, IEnumerable<string> values)
         {
             writer.WritePropertyName(name);
             writer.WriteStartArray();
@@ -336,20 +337,24 @@ namespace Neo.Compiler
             writer.WriteEndArray();
         }
 
-        public void WriteDebugInfo(System.Text.Json.Utf8JsonWriter writer, SmartContract.NefFile nef)
+        static IEnumerable<INamedTypeSymbol?> GetSymbols<T>(Compilation compilation)
+            where T : TypeDeclarationSyntax
         {
-            var visitor = new Visitor(compilation);
+            return compilation.SyntaxTrees
+                .SelectMany(tree => tree.GetRoot()
+                    .DescendantNodes()
+                    .OfType<T>())
+                .Select(c => compilation
+                    .GetSemanticModel(c.SyntaxTree)
+                    .GetDeclaredSymbol(c));
+        }
+
+        public void WriteDebugInfo(Utf8JsonWriter writer, SmartContract.NefFile nef)
+        {
             string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();
-            var structs = compilation.SyntaxTrees
-                .Select(t => (
-                    model: compilation.GetSemanticModel(t),
-                    root: t.GetRoot()))
-                .SelectMany(a => a.root.DescendantNodes()
-                    .OfType<ClassDeclarationSyntax>()
-                    .Select(c => a.model.GetDeclaredSymbol(c))
-                    .Concat(a.root.DescendantNodes()
-                        .OfType<StructDeclarationSyntax>()
-                        .Select(c => a.model.GetDeclaredSymbol(c))))
+            ContractTypeVisitor resolver = new(compilation);
+            IEnumerable<INamedTypeSymbol> structs = GetSymbols<ClassDeclarationSyntax>(this.compilation)
+                .Concat(GetSymbols<StructDeclarationSyntax>(compilation))
                 .OfType<INamedTypeSymbol>()
                 // temp while I have expected infrastructure types in project 
                 .Where(t => !$"{t.ContainingSymbol}".StartsWith("Neo."));
@@ -361,7 +366,7 @@ namespace Neo.Compiler
             WriteArray(writer, "documents", sourceLocations);
             
             var statics = staticFields.OrderBy(kvp => kvp.Value)
-                .Select(t => $"{t.Key.Name},{visitor.Visit(t.Key.Type).AsString()},{t.Value}");
+                .Select(t => $"{t.Key.Name},{resolver.Resolve(t.Key.Type).AsString()},{t.Value}");
             WriteArray(writer, "static-variables", statics);
 
             writer.WritePropertyName("methods");
@@ -376,26 +381,25 @@ namespace Neo.Compiler
 
                 writer.WritePropertyName("params");
                 writer.WriteStartArray();
-                if (m.Symbol.IsStatic)
+                if (!m.Symbol.IsStatic)
                 {
-                    writer.WriteStringValue($"#this,{visitor.Visit(m.Symbol.ContainingSymbol).AsString()}");
+                    writer.WriteStringValue($"#this,{resolver.Resolve(m.Symbol.ContainingSymbol).AsString()}");
                 }
                 foreach (var param in m.Symbol.Parameters)
                 {
-                    writer.WriteStringValue($"{param.Name},{visitor.Visit(param.Type).AsString()}");
+                    writer.WriteStringValue($"{param.Name},{resolver.Resolve(param.Type).AsString()}");
                 }
                 writer.WriteEndArray();
 
-                var @return = visitor.Visit(m.Symbol.ReturnType) switch
+                var @return = resolver.Resolve(m.Symbol.ReturnType) switch
                 {
                     VoidContractType => "#Void",
                     ContractType t => t.AsString(),
-                    _ => UnspecifiedContractType.Unspecified.AsString(),
                 };
                 writer.WriteString("return", @return);
 
                 var vars = m.Variables
-                    .Select(v =>$"{v.Symbol.Name},{(visitor.Visit(v.Symbol.Type).AsString())},{v.SlotIndex}");
+                    .Select(v =>$"{v.Symbol.Name},{(resolver.Resolve(v.Symbol.Type).AsString())},{v.SlotIndex}");
                 WriteArray(writer, "variables", vars);
 
                 var sequencePoints = m.Instructions
@@ -424,7 +428,7 @@ namespace Neo.Compiler
                 var symbol = (IEventSymbol)e.Symbol;
                 var method = ((INamedTypeSymbol)symbol.Type).DelegateInvokeMethod ?? throw new Exception();
                 var @params = method.Parameters
-                    .Select(p => $"{p.Name},{visitor.Visit(p.Type).AsString()}");
+                    .Select(p => $"{p.Name},{resolver.Resolve(p.Type).AsString()}");
                 WriteArray(writer, "params", @params);
     
                 writer.WriteEndObject();
@@ -433,18 +437,18 @@ namespace Neo.Compiler
 
             writer.WritePropertyName("structs");
             writer.WriteStartArray();
-            foreach (var s in structs)
+            foreach (var @struct in structs)
             {
-                var fields = s.GetAllMembers()
+                var fields = @struct.GetAllMembers()
                     .OfType<IFieldSymbol>()
                     .Where(f => !f.HasConstantValue && !f.IsStatic)
-                    .Select(f => $"{f.Name},{visitor.Visit(f.Type).AsString()}");
+                    .Select(f => $"{f.Name},{resolver.Resolve(f.Type).AsString()}");
 
                 if (!fields.Any()) continue;
 
                 writer.WriteStartObject();
-                writer.WriteString("id", s.Name);
-                writer.WriteString("name", $"{s}");
+                writer.WriteString("id", @struct.Name);
+                writer.WriteString("name", $"{@struct.ContainingSymbol}.{@struct.Name}");
                 WriteArray(writer, "fields", fields);
                 writer.WriteEndObject();
             }
