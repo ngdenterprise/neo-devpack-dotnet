@@ -358,13 +358,15 @@ namespace Neo.Compiler
                 .OfType<INamedTypeSymbol>()
                 // temp while I have expected infrastructure types in project 
                 .Where(t => !$"{t.ContainingSymbol}".StartsWith("Neo."));
+            var storageGroupAttrib = compilation.FindType("Neo.SmartContract.Framework.Attributes.StorageGroupAttribute");
+            var storageKeySegAttrib = compilation.FindType("Neo.SmartContract.Framework.Attributes.StorageKeySegmentAttribute");
 
             writer.WriteStartObject();
             writer.WriteNumber("version", 2);
             writer.WriteString("hash", $"{nef.Script.ToScriptHash()}");
             writer.WriteNumber("checksum", nef.CheckSum);
             WriteArray(writer, "documents", sourceLocations);
-            
+
             var statics = staticFields.OrderBy(kvp => kvp.Value)
                 .Select(t => $"{t.Key.Name},{resolver.Resolve(t.Key.Type).AsString()},{t.Value}");
             WriteArray(writer, "static-variables", statics);
@@ -399,7 +401,7 @@ namespace Neo.Compiler
                 writer.WriteString("return", @return);
 
                 var vars = m.Variables
-                    .Select(v =>$"{v.Symbol.Name},{(resolver.Resolve(v.Symbol.Type).AsString())},{v.SlotIndex}");
+                    .Select(v => $"{v.Symbol.Name},{(resolver.Resolve(v.Symbol.Type).AsString())},{v.SlotIndex}");
                 WriteArray(writer, "variables", vars);
 
                 var sequencePoints = m.Instructions
@@ -430,7 +432,7 @@ namespace Neo.Compiler
                 var @params = method.Parameters
                     .Select(p => $"{p.Name},{resolver.Resolve(p.Type).AsString()}");
                 WriteArray(writer, "params", @params);
-    
+
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -450,6 +452,74 @@ namespace Neo.Compiler
                 writer.WriteString("id", @struct.Name);
                 writer.WriteString("name", $"{@struct.ContainingSymbol}.{@struct.Name}");
                 WriteArray(writer, "fields", fields);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            var sc = GetSymbols<ClassDeclarationSyntax>(this.compilation)
+                .OfType<INamedTypeSymbol>()
+                .Single(s => SymbolEqualityComparer.Default.Equals(s.BaseType, resolver.SmartContract));
+
+            List<StorageType> _storages = new List<StorageType>();
+
+            foreach (var attrib in sc.GetAttributes())
+            {
+                if (attrib.AttributeClass is null) continue;
+
+                if (attrib.AttributeClass.Name == "StoragePropertyAttribute")
+                {
+                    ;
+                }
+
+                if (attrib.AttributeClass.Name == "StorageMapAttribute")
+                {
+                    ;
+                }
+
+
+            }
+
+            
+
+            var tokenState = structs.Single(s => s.Name == "TokenState");
+            var storages = new[]
+            {
+                new StorageType("TotalSupply", new byte[] { 0x00 },
+                    PrimitiveContractType.Integer,
+                    Array.Empty<(string, PrimitiveType)>()),
+                new StorageType("TokenId", new byte[] { 0x02 },
+                    PrimitiveContractType.Integer,
+                    Array.Empty<(string, PrimitiveType)>()),
+                new StorageType("ContractOwner", new byte[] { 0xff },
+                    PrimitiveContractType.Address,
+                    Array.Empty<(string, PrimitiveType)>()),
+
+                new StorageType("Balance", new byte[] { 0x01 },
+                    PrimitiveContractType.Integer,
+                    new [] { ("owner", PrimitiveType.Address) }),
+                new StorageType("Token", new byte[] { 0x03 },
+                    new SymbolContractType(tokenState),
+                    new [] { ("owner", PrimitiveType.Address) }),
+                new StorageType("AccountToken", new byte[] { 0x04 },
+                    PrimitiveContractType.Integer,
+                    new [] {
+                        ("owner", PrimitiveType.Address),
+                        ("tokenId", PrimitiveType.Hash256)
+                    }),
+            };
+
+            writer.WritePropertyName("storages");
+            writer.WriteStartArray();
+            foreach (var storage in storages)
+            {
+                var segments = storage.KeySegments.Select(s => $"{s.name},{s.type}");
+
+                writer.WriteStartObject();
+                writer.WriteString("name", storage.Name);
+                writer.WriteString("type", storage.ValueType.AsString());
+                writer.WriteString("prefix", Convert.ToHexString(storage.Prefix));
+
+                if (segments.Any()) { WriteArray(writer, "segments", segments); }
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();

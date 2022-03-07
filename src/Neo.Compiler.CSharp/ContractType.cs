@@ -4,7 +4,12 @@ using System;
 
 namespace Neo.Compiler
 {
-    public enum PrimitiveType : byte
+    record StorageType(string Name, byte[] Prefix, ContractType ValueType, 
+        IReadOnlyCollection<(string name, PrimitiveType type)> KeySegments);
+
+    record StructType(string Name) : ContractType;
+    
+    enum PrimitiveType : byte
     {
         Boolean,
         Integer,
@@ -17,14 +22,14 @@ namespace Neo.Compiler
         Address,
     }
 
-    public abstract record ContractType();
+    abstract record ContractType();
 
-    public record ArrayContractType(ContractType Type) : ContractType;
-    public record InteropContractType(INamedTypeSymbol Symbol) : ContractType;
-    public record MapContractType(PrimitiveType KeyType, ContractType ValueType) : ContractType;
-    public record NeoScfxContractType(INamedTypeSymbol Symbol) : ContractType;
+    record ArrayContractType(ContractType Type) : ContractType;
+    record InteropContractType(INamedTypeSymbol Symbol) : ContractType;
+    record MapContractType(PrimitiveType KeyType, ContractType ValueType) : ContractType;
+    record NeoScfxContractType(INamedTypeSymbol Symbol) : ContractType;
 
-    public record PrimitiveContractType(PrimitiveType Type) : ContractType
+    record PrimitiveContractType(PrimitiveType Type) : ContractType
     {
         public readonly static PrimitiveContractType Address = new PrimitiveContractType(PrimitiveType.Address);
         public readonly static PrimitiveContractType Boolean = new PrimitiveContractType(PrimitiveType.Boolean);
@@ -36,12 +41,12 @@ namespace Neo.Compiler
         public readonly static PrimitiveContractType Signature = new PrimitiveContractType(PrimitiveType.Signature);
         public readonly static PrimitiveContractType String = new PrimitiveContractType(PrimitiveType.String);
     }
-    public record SymbolContractType(INamedTypeSymbol Symbol) : ContractType;
-    public record UnspecifiedContractType() : ContractType
+    record SymbolContractType(INamedTypeSymbol Symbol) : ContractType;
+    record UnspecifiedContractType() : ContractType
     {
         public readonly static UnspecifiedContractType Unspecified = new UnspecifiedContractType();
     }
-    public record VoidContractType() : ContractType
+    record VoidContractType() : ContractType
     {
         public readonly static VoidContractType Void = new VoidContractType();
     }

@@ -6,26 +6,28 @@ namespace Neo.Compiler
 {
     class ContractTypeVisitor : SymbolVisitor<ContractType>
     {
-        readonly INamedTypeSymbol? address;
+        // readonly INamedTypeSymbol? address;
         readonly INamedTypeSymbol apiInterface;
         readonly INamedTypeSymbol bigInt;
         readonly INamedTypeSymbol byteString;
         readonly INamedTypeSymbol ecPoint;
         readonly INamedTypeSymbol list;
         readonly INamedTypeSymbol map;
+        public readonly INamedTypeSymbol SmartContract;
         readonly INamedTypeSymbol uint160;
         readonly INamedTypeSymbol uint256;
         readonly IAssemblySymbol scfx;
 
         public ContractTypeVisitor(Compilation compilation)
         {
-            address = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.Address");
+            // address = compilation.GetTypeByMetadataName("Neo.SmartContract.Framework.Address");
             apiInterface = compilation.FindType("Neo.SmartContract.Framework.IApiInterface");
             bigInt = compilation.FindType("System.Numerics.BigInteger");
             byteString = compilation.FindType("Neo.SmartContract.Framework.ByteString");
             ecPoint = compilation.FindType("Neo.Cryptography.ECC.ECPoint");
             list = compilation.FindType("Neo.SmartContract.Framework.List`1");
             map = compilation.FindType("Neo.SmartContract.Framework.Map`2");
+            SmartContract = compilation.FindType("Neo.SmartContract.Framework.SmartContract");
             uint160 = compilation.FindType("Neo.UInt160");
             uint256 = compilation.FindType("Neo.UInt256");
 
@@ -70,7 +72,7 @@ namespace Neo.Compiler
         ContractType? ConvertSymbol(INamedTypeSymbol symbol)
         {
             Func<ISymbol?, ISymbol?, bool> equals = SymbolEqualityComparer.Default.Equals;
-            if (equals(symbol, address)) return PrimitiveContractType.Address;
+            // if (equals(symbol, address)) return PrimitiveContractType.Address;
             if (equals(symbol, bigInt)) return PrimitiveContractType.Integer;
             if (equals(symbol, byteString)) return PrimitiveContractType.ByteArray;
             if (equals(symbol, ecPoint)) return PrimitiveContractType.PublicKey;
