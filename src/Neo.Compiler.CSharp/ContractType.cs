@@ -4,9 +4,6 @@ using System;
 
 namespace Neo.Compiler
 {
-    record StorageType(string Name, byte[] Prefix, ContractType ValueType, 
-        IReadOnlyCollection<(string name, PrimitiveType type)> KeySegments);
-
     record StructType(string Name) : ContractType;
     
     enum PrimitiveType : byte
@@ -73,8 +70,5 @@ namespace Neo.Compiler
                     ? throw new NotSupportedException($"Invalid type name {typeName}")
                     : typeName;
         }
-
-        public static INamedTypeSymbol FindType(this Compilation compilation, string name)
-            => compilation.GetTypeByMetadataName(name) ?? throw new Exception($"{name} type not found");
     }
 }

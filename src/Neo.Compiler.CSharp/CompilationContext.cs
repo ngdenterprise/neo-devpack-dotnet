@@ -33,10 +33,18 @@ namespace Neo.Compiler
 {
     public class CompilationContext
     {
+        record struct StructDef(INamedTypeSymbol Struct, IReadOnlyList<IFieldSymbol> Fields);
+        record struct StorageKeySegment(string Name, PrimitiveType Type);
+        record struct StorageGroup(
+            string Name, 
+            INamedTypeSymbol ValueType, 
+            ReadOnlyMemory<byte> Prefix, 
+            IReadOnlyList<StorageKeySegment> Segments);
+
         private static readonly MetadataReference[] commonReferences;
         private static readonly Dictionary<string, MetadataReference> metaReferences = new();
         private readonly Compilation compilation;
-        private bool scTypeFound;
+        private INamedTypeSymbol? smartContractSymbol;
         private readonly List<Diagnostic> diagnostics = new();
         private readonly HashSet<string> supportedStandards = new();
         private readonly List<AbiMethod> methodsExported = new();
@@ -50,6 +58,9 @@ namespace Neo.Compiler
         private readonly Dictionary<IFieldSymbol, byte> staticFields = new();
         private readonly Dictionary<ITypeSymbol, byte> vtables = new();
         private byte[]? script;
+        private readonly List<StructDef> structDefs = new();
+        private readonly List<StorageGroup> storageGroups = new();
+        private readonly TypeCache typeCache;
 
         public bool Success => diagnostics.All(p => p.Severity != DiagnosticSeverity.Error);
         public IReadOnlyList<Diagnostic> Diagnostics => diagnostics;
@@ -77,6 +88,7 @@ namespace Neo.Compiler
         private CompilationContext(Compilation compilation, Options options)
         {
             this.compilation = compilation;
+            this.typeCache = new(this.compilation);
             this.Options = options;
             this.ContractName = options.ContractName;
         }
@@ -132,7 +144,7 @@ namespace Neo.Compiler
             }
             if (Success)
             {
-                if (!scTypeFound)
+                if (smartContractSymbol is null)
                 {
                     diagnostics.Add(Diagnostic.Create(DiagnosticId.NoEntryPoint, DiagnosticCategory.Default, "No SmartContract is found in the sources.", DiagnosticSeverity.Error, DiagnosticSeverity.Error, true, 0));
                     return;
@@ -142,6 +154,113 @@ namespace Neo.Compiler
                 instructions.RebuildOffsets();
                 if (!Options.NoOptimize) Optimizer.CompressJumps(instructions);
                 instructions.RebuildOperands();
+                GenerateDebugInfo();
+            }
+        }
+
+        void DebugWarning(ISymbol symbol, string id, string message, int warningLevel = 1)
+        {
+            var locaction = symbol.Locations.IsEmpty ? null : symbol.Locations[0];
+            var diag = Diagnostic.Create(id: id, 
+                category: DiagnosticCategory.Default, 
+                message: message,
+                severity: DiagnosticSeverity.Warning,
+                defaultSeverity: DiagnosticSeverity.Warning,
+                isEnabledByDefault: true, 
+                warningLevel: warningLevel, 
+                location: locaction);
+            diagnostics.Add(diag);
+        }
+
+        private void GenerateDebugInfo()
+        {
+            IEnumerable<INamedTypeSymbol> structs = GetSymbols<ClassDeclarationSyntax>(this.compilation)
+                .Concat(GetSymbols<StructDeclarationSyntax>(compilation))
+                .OfType<INamedTypeSymbol>();
+
+            foreach (var @struct in structs)
+            {
+                var structFields = @struct.GetAllMembers()
+                    .OfType<IFieldSymbol>()
+                    .Where(f => !f.HasConstantValue && !f.IsStatic);
+
+                if (!structFields.Any()) continue;
+
+                structDefs.Add(new StructDef(@struct, structFields.ToArray()));
+            }
+
+            Debug.Assert(smartContractSymbol is not null);
+
+            var fields = smartContractSymbol.GetAllMembers().OfType<IFieldSymbol>();
+            foreach (var field in fields)
+            {
+                var storageGroup = field.GetAttributes()
+                    .SingleOrDefault(a => a.AttributeClass is not null 
+                        && typeCache.Equals(a.AttributeClass, "Neo.SmartContract.Framework.Attributes.StorageGroupAttribute"));
+                if (storageGroup is null) continue;
+
+                if (!field.IsConst || field.ConstantValue is null)
+                {
+                    DebugWarning(field, "NC4001", "Storage Group Fields must be const");
+                    continue;
+                }
+
+                string name = "";
+                INamedTypeSymbol? valueType = null;
+                if (storageGroup.ConstructorArguments.Length == 1)
+                {
+                    name = field.Name.StartsWith("Prefix_", StringComparison.InvariantCultureIgnoreCase)
+                        ? field.Name.Substring(7) 
+                        : field.Name;
+                    valueType = storageGroup.ConstructorArguments[0].Value as INamedTypeSymbol; 
+                }
+                else if (storageGroup.ConstructorArguments.Length == 2)
+                {
+                    name = storageGroup.ConstructorArguments[0].Value as string ?? string.Empty; 
+                    valueType = storageGroup.ConstructorArguments[1].Value as INamedTypeSymbol; 
+                }
+
+                if (string.IsNullOrEmpty(name) || valueType is null)
+                {
+                    DebugWarning(field, "NC4002", "Invalid StorageGroup attribute values");
+                    continue;
+                }
+
+                ReadOnlyMemory<byte> prefix;
+                if (field.Type.SpecialType == SpecialType.System_Byte)
+                {
+                    prefix = new [] { (byte)field.ConstantValue };
+                }
+                else if (field.Type.SpecialType == SpecialType.System_String)
+                { 
+                    prefix = Neo.Utility.StrictUTF8.GetBytes((string)field.ConstantValue!);
+                }
+                else
+                {
+                    DebugWarning(field, "NC4003", "Storage Group Fields must be byte or string");
+                    continue;
+                }
+
+                var keySegments = field.GetAttributes()
+                    .Where(a => a.AttributeClass is not null 
+                        && typeCache.Equals(a.AttributeClass, "Neo.SmartContract.Framework.Attributes.StorageKeySegmentAttribute"))
+                    .Select(a => new StorageKeySegment((string)a.ConstructorArguments[0].Value!, (PrimitiveType)a.ConstructorArguments[1].Value!))
+                    .ToArray();
+
+                var initialSegments = keySegments.Take(keySegments.Length - 1);
+                if (initialSegments.Any(s => s.Type switch
+                    {
+                        PrimitiveType.Address => true,
+                        PrimitiveType.Hash160 => true,
+                        PrimitiveType.Hash256 => true,
+                        _ => false,
+                    }))
+                {
+                    DebugWarning(field, "NC4004", "Only the last key segment can be a variable length primitive type");
+                    continue;
+                }
+
+                storageGroups.Add(new StorageGroup(name, valueType, prefix, keySegments));
             }
         }
 
@@ -352,14 +471,7 @@ namespace Neo.Compiler
         public void WriteDebugInfo(Utf8JsonWriter writer, SmartContract.NefFile nef)
         {
             string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();
-            ContractTypeVisitor resolver = new(compilation);
-            IEnumerable<INamedTypeSymbol> structs = GetSymbols<ClassDeclarationSyntax>(this.compilation)
-                .Concat(GetSymbols<StructDeclarationSyntax>(compilation))
-                .OfType<INamedTypeSymbol>()
-                // temp while I have expected infrastructure types in project 
-                .Where(t => !$"{t.ContainingSymbol}".StartsWith("Neo."));
-            var storageGroupAttrib = compilation.FindType("Neo.SmartContract.Framework.Attributes.StorageGroupAttribute");
-            var storageKeySegAttrib = compilation.FindType("Neo.SmartContract.Framework.Attributes.StorageKeySegmentAttribute");
+            ContractTypeVisitor resolver = new(typeCache);
 
             writer.WriteStartObject();
             writer.WriteNumber("version", 2);
@@ -439,104 +551,32 @@ namespace Neo.Compiler
 
             writer.WritePropertyName("structs");
             writer.WriteStartArray();
-            foreach (var @struct in structs)
+            foreach (var (@struct, fields) in structDefs)
             {
-                var fields = @struct.GetAllMembers()
-                    .OfType<IFieldSymbol>()
-                    .Where(f => !f.HasConstantValue && !f.IsStatic)
-                    .Select(f => $"{f.Name},{resolver.Resolve(f.Type).AsString()}");
-
-                if (!fields.Any()) continue;
-
                 writer.WriteStartObject();
                 writer.WriteString("id", @struct.Name);
                 writer.WriteString("name", $"{@struct.ContainingSymbol}.{@struct.Name}");
-                WriteArray(writer, "fields", fields);
+                WriteArray(writer, "fields", fields
+                    .Select(f => $"{f.Name},{resolver.Resolve(f.Type).AsString()}"));
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
-
-            var sc = GetSymbols<ClassDeclarationSyntax>(this.compilation)
-                .OfType<INamedTypeSymbol>()
-                .Single(s => SymbolEqualityComparer.Default.Equals(s.BaseType, resolver.SmartContract));
-
-            List<StorageType> _storages = new List<StorageType>();
-
-            foreach (var attrib in sc.GetAttributes())
-            {
-                if (attrib.AttributeClass is null) continue;
-
-                if (attrib.AttributeClass.Name == "StoragePropertyAttribute")
-                {
-                    ;
-                }
-
-                if (attrib.AttributeClass.Name == "StorageMapAttribute")
-                {
-                    ;
-                }
-
-
-            }
-
-            
-
-            var tokenState = structs.Single(s => s.Name == "TokenState");
-            var storages = new[]
-            {
-                new StorageType("TotalSupply", new byte[] { 0x00 },
-                    PrimitiveContractType.Integer,
-                    Array.Empty<(string, PrimitiveType)>()),
-                new StorageType("TokenId", new byte[] { 0x02 },
-                    PrimitiveContractType.Integer,
-                    Array.Empty<(string, PrimitiveType)>()),
-                new StorageType("ContractOwner", new byte[] { 0xff },
-                    PrimitiveContractType.Address,
-                    Array.Empty<(string, PrimitiveType)>()),
-
-                new StorageType("Balance", new byte[] { 0x01 },
-                    PrimitiveContractType.Integer,
-                    new [] { ("owner", PrimitiveType.Address) }),
-                new StorageType("Token", new byte[] { 0x03 },
-                    new SymbolContractType(tokenState),
-                    new [] { ("owner", PrimitiveType.Address) }),
-                new StorageType("AccountToken", new byte[] { 0x04 },
-                    PrimitiveContractType.Integer,
-                    new [] {
-                        ("owner", PrimitiveType.Address),
-                        ("tokenId", PrimitiveType.Hash256)
-                    }),
-            };
 
             writer.WritePropertyName("storages");
             writer.WriteStartArray();
-            foreach (var storage in storages)
+            foreach (var storage in storageGroups)
             {
-                var segments = storage.KeySegments.Select(s => $"{s.name},{s.type}");
-
                 writer.WriteStartObject();
                 writer.WriteString("name", storage.Name);
-                writer.WriteString("type", storage.ValueType.AsString());
-                writer.WriteString("prefix", Convert.ToHexString(storage.Prefix));
-
-                if (segments.Any()) { WriteArray(writer, "segments", segments); }
+                writer.WriteString("type", resolver.Resolve(storage.ValueType).AsString());
+                writer.WriteString("prefix", Convert.ToHexString(storage.Prefix.Span));
+                if (storage.Segments.Any())
+                { 
+                    WriteArray(writer, "segments", storage.Segments.Select(s => $"{s.Name},{s.Type}"));
+                }
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
-
-            // Storages Current Algorithm
-            // for each type declaration that has a StorageSchemaAttribute:
-            //  * for each property member w/ a StorageGroup attribute 
-            //     * storage name is member name
-            //     * storage key prefix in attribue
-            //     * if get method is type that implements IStorageGroup
-            //        * all type args but last are key segments types
-            //           * how to get segment names? 
-            //        * last type arg is value type
-            //     * else
-            //        * must have set method
-            //        * zero key segments
-            //        * property type is value type
 
             writer.WriteEndObject();
         }
@@ -614,8 +654,8 @@ namespace Neo.Compiler
             bool isSmartContract = isPublic && !isAbstract && isContractType;
             if (isSmartContract)
             {
-                if (scTypeFound) throw new CompilationException(DiagnosticId.MultiplyContracts, $"Only one smart contract is allowed.");
-                scTypeFound = true;
+                if (smartContractSymbol is not null) throw new CompilationException(DiagnosticId.MultiplyContracts, $"Only one smart contract is allowed.");
+                smartContractSymbol = symbol;
                 foreach (var attribute in symbol.GetAttributesWithInherited())
                 {
                     switch (attribute.AttributeClass!.Name)
