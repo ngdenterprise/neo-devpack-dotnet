@@ -18,6 +18,7 @@ namespace Neo.Compiler
         public bool Assembly { get; set; }
         public bool NoOptimize { get; set; }
         public bool NoInline { get; set; }
+        public bool NoCompressDebugInfo { get; set; }
         public byte AddressVersion { get; set; }
     }
 }

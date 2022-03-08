@@ -33,7 +33,8 @@ namespace Neo.Compiler
                 new Option<bool>("--assembly", "Indicates whether to generate assembly."),
                 new Option<bool>("--no-optimize", "Instruct the compiler not to optimize the code."),
                 new Option<bool>("--no-inline", "Instruct the compiler not to insert inline code."),
-                new Option<byte>("--address-version", () => ProtocolSettings.Default.AddressVersion, "Indicates the address version used by the compiler.")
+                new Option<byte>("--address-version", () => ProtocolSettings.Default.AddressVersion, "Indicates the address version used by the compiler."),
+                new Option<bool>("--no-compress-debug-info", "Indicates whether to compress debug info"),
             };
             rootCommand.Handler = CommandHandler.Create<RootCommand, Options, string[]>(Handle);
             return rootCommand.Invoke(args);
@@ -133,20 +134,24 @@ namespace Neo.Compiler
                         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                         Indented = true 
                     };
-                    path = Path.Combine(folder, $"{context.ContractName}.debug.json");
-                    using (FileStream fs = new(path, FileMode.Create, FileAccess.Write))
-                    using (var writer = new System.Text.Json.Utf8JsonWriter(fs, writerOptions))
+
+                    if (options.NoCompressDebugInfo)
                     {
+                        path = Path.Combine(folder, $"{context.ContractName}.debug.json");
+                        using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
+                        using var writer = new System.Text.Json.Utf8JsonWriter(fs, writerOptions);
+                        context.WriteDebugInfo(writer, nef);
+                    }
+                    else
+                    {
+                        path = Path.Combine(folder, $"{context.ContractName}.nefdbgnfo");
+                        using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
+                        using ZipArchive archive = new(fs, ZipArchiveMode.Create);
+                        using Stream stream = archive.CreateEntry($"{context.ContractName}.debug.json").Open();
+                        using var writer = new System.Text.Json.Utf8JsonWriter(stream, writerOptions);
                         context.WriteDebugInfo(writer, nef);
                     }
                     Console.WriteLine($"Created {path}");
-
-                    // path = Path.Combine(folder, $"{context.ContractName}.nefdbgnfo");
-                    // using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
-                    // using ZipArchive archive = new(fs, ZipArchiveMode.Create);
-                    // using Stream stream = archive.CreateEntry($"{context.ContractName}.debug.json").Open();
-                    // stream.Write(context.CreateDebugInformation().ToByteArray(false));
-                    // Console.WriteLine($"Created {path}");
                 }
                 if (options.Assembly)
                 {
