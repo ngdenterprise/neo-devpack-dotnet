@@ -1,4 +1,4 @@
-name: .NET Core Test and Publish
+name: Build Packages
 
 on:
   push:
@@ -11,7 +11,7 @@ env:
 
 jobs:
 
-  Test:
+  build:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
