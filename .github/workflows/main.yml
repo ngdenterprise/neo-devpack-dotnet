@@ -29,12 +29,12 @@ jobs:
         script: |
           let commitHash = '';
           await exec.exec('git', ['show-ref', '-s', 'v3.1.0'], {
-            listeners = { stdout: (data: Buffer) => { commitHash += data.toString(); } }
+            listeners: { stdout: (data) => { commitHash += data.toString(); } }
           });
 
           let count = '';
-          await exec.exec('git', ['rev-list', '--count', commitHash + '..HEAD'], {
-            listeners = { stdout: (data: Buffer) => { count += data.toString(); } }
+          await exec.exec('git', ['rev-list', '--count', commitHash + '..HEAD'], { 
+              listeners: { stdout: (data) => { count += data.toString(); } } 
           });
 
           core.setOutput('prefix', '3.1.' + (1000 + (+count));
