@@ -37,7 +37,8 @@ jobs:
               listeners: { stdout: (data) => { count += data.toString(); } } 
           });
 
-          core.setOutput('prefix', '3.1.' + (1000 + (+count));
+          const patch = 1000 + (+count);
+          core.setOutput('prefix', '3.1.' + patch);
 
     - name: Install debug adapter dependencies
       run: dotnet restore
