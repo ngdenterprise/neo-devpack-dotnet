@@ -172,6 +172,19 @@ namespace Neo.Compiler
             diagnostics.Add(diag);
         }
 
+
+        static IEnumerable<INamedTypeSymbol?> GetSymbols<T>(Compilation compilation)
+            where T : TypeDeclarationSyntax
+        {
+            return compilation.SyntaxTrees
+                .SelectMany(tree => tree.GetRoot()
+                    .DescendantNodes()
+                    .OfType<T>())
+                .Select(c => compilation
+                    .GetSemanticModel(c.SyntaxTree)
+                    .GetDeclaredSymbol(c));
+        }
+
         private void GenerateDebugInfo()
         {
             IEnumerable<INamedTypeSymbol> structs = GetSymbols<ClassDeclarationSyntax>(this.compilation)
@@ -250,10 +263,10 @@ namespace Neo.Compiler
                 var initialSegments = keySegments.Take(keySegments.Length - 1);
                 if (initialSegments.Any(s => s.Type switch
                     {
-                        PrimitiveType.Address => true,
-                        PrimitiveType.Hash160 => true,
-                        PrimitiveType.Hash256 => true,
-                        _ => false,
+                        PrimitiveType.Address => false,
+                        PrimitiveType.Hash160 => false,
+                        PrimitiveType.Hash256 => false,
+                        _ => true,
                     }))
                 {
                     DebugWarning(field, "NC4004", "Only the last key segment can be a variable length primitive type");
@@ -454,18 +467,6 @@ namespace Neo.Compiler
                 writer.WriteStringValue(value);
             }
             writer.WriteEndArray();
-        }
-
-        static IEnumerable<INamedTypeSymbol?> GetSymbols<T>(Compilation compilation)
-            where T : TypeDeclarationSyntax
-        {
-            return compilation.SyntaxTrees
-                .SelectMany(tree => tree.GetRoot()
-                    .DescendantNodes()
-                    .OfType<T>())
-                .Select(c => compilation
-                    .GetSemanticModel(c.SyntaxTree)
-                    .GetDeclaredSymbol(c));
         }
 
         public void WriteDebugInfo(Utf8JsonWriter writer, SmartContract.NefFile nef)
