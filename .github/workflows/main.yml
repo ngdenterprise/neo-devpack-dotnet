@@ -23,22 +23,19 @@ jobs:
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
+
+    - id: showRef
+      run: echo "::set-output name=hash::$(git show-ref -s v3.1.0)"
+    - id: revListCount
+      run: echo "::set-output name=count::$(git rev-list --count ${{ steps.showRef.outputs.hash }}..HEAD)"
     - id: verInfo
       uses: actions/github-script@v6.0.0
+      env:
+        REV_LIST_COUNT: ${{ steps.revListCount.outputs.count }}
       with:
         script: |
-          let commitHash = '';
-          await exec.exec('git', ['show-ref', '-s', 'v3.1.0'], {
-            listeners: { stdout: (data) => { commitHash += data.toString(); } }
-          });
-
-          let count = '';
-          await exec.exec('git', ['rev-list', '--count', commitHash + '..HEAD'], { 
-              listeners: { stdout: (data) => { count += data.toString(); } } 
-          });
-
-          const patch = 1000 + (+count);
+          const { REV_LIST_COUNT } = process.env;
+          const patch = 1000 + (+REV_LIST_COUNT);
           core.setOutput('prefix', '3.1.' + patch);
 
     - name: Install debug adapter dependencies
