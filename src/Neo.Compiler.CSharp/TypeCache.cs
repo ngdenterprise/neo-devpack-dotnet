@@ -36,7 +36,7 @@ namespace Neo.Compiler
             return symbol;
         }
 
-        public bool Equals(INamedTypeSymbol symbol, string typeName) 
+        public bool Equals(INamedTypeSymbol symbol, string typeName)
             => SymbolEqualityComparer.Default.Equals(symbol, FindType(typeName));
 
     }

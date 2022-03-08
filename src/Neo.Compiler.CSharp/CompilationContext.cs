@@ -36,9 +36,9 @@ namespace Neo.Compiler
         record struct StructDef(INamedTypeSymbol Struct, IReadOnlyList<IFieldSymbol> Fields);
         record struct StorageKeySegment(string Name, PrimitiveType Type);
         record struct StorageGroup(
-            string Name, 
-            INamedTypeSymbol ValueType, 
-            ReadOnlyMemory<byte> Prefix, 
+            string Name,
+            INamedTypeSymbol ValueType,
+            ReadOnlyMemory<byte> Prefix,
             IReadOnlyList<StorageKeySegment> Segments);
 
         private static readonly MetadataReference[] commonReferences;
@@ -161,13 +161,13 @@ namespace Neo.Compiler
         void DebugWarning(ISymbol symbol, string id, string message, int warningLevel = 1)
         {
             var locaction = symbol.Locations.IsEmpty ? null : symbol.Locations[0];
-            var diag = Diagnostic.Create(id: id, 
-                category: DiagnosticCategory.Default, 
+            var diag = Diagnostic.Create(id: id,
+                category: DiagnosticCategory.Default,
                 message: message,
                 severity: DiagnosticSeverity.Warning,
                 defaultSeverity: DiagnosticSeverity.Warning,
-                isEnabledByDefault: true, 
-                warningLevel: warningLevel, 
+                isEnabledByDefault: true,
+                warningLevel: warningLevel,
                 location: locaction);
             diagnostics.Add(diag);
         }
@@ -208,7 +208,7 @@ namespace Neo.Compiler
             foreach (var field in fields)
             {
                 var storageGroup = field.GetAttributes()
-                    .SingleOrDefault(a => a.AttributeClass is not null 
+                    .SingleOrDefault(a => a.AttributeClass is not null
                         && typeCache.Equals(a.AttributeClass, "Neo.SmartContract.Framework.Attributes.StorageGroupAttribute"));
                 if (storageGroup is null) continue;
 
@@ -223,14 +223,14 @@ namespace Neo.Compiler
                 if (storageGroup.ConstructorArguments.Length == 1)
                 {
                     name = field.Name.StartsWith("Prefix_", StringComparison.InvariantCultureIgnoreCase)
-                        ? field.Name.Substring(7) 
+                        ? field.Name.Substring(7)
                         : field.Name;
-                    valueType = storageGroup.ConstructorArguments[0].Value as INamedTypeSymbol; 
+                    valueType = storageGroup.ConstructorArguments[0].Value as INamedTypeSymbol;
                 }
                 else if (storageGroup.ConstructorArguments.Length == 2)
                 {
-                    name = storageGroup.ConstructorArguments[0].Value as string ?? string.Empty; 
-                    valueType = storageGroup.ConstructorArguments[1].Value as INamedTypeSymbol; 
+                    name = storageGroup.ConstructorArguments[0].Value as string ?? string.Empty;
+                    valueType = storageGroup.ConstructorArguments[1].Value as INamedTypeSymbol;
                 }
 
                 if (string.IsNullOrEmpty(name) || valueType is null)
@@ -242,10 +242,10 @@ namespace Neo.Compiler
                 ReadOnlyMemory<byte> prefix;
                 if (field.Type.SpecialType == SpecialType.System_Byte)
                 {
-                    prefix = new [] { (byte)field.ConstantValue };
+                    prefix = new[] { (byte)field.ConstantValue };
                 }
                 else if (field.Type.SpecialType == SpecialType.System_String)
-                { 
+                {
                     prefix = Neo.Utility.StrictUTF8.GetBytes((string)field.ConstantValue!);
                 }
                 else
@@ -255,7 +255,7 @@ namespace Neo.Compiler
                 }
 
                 var keySegments = field.GetAttributes()
-                    .Where(a => a.AttributeClass is not null 
+                    .Where(a => a.AttributeClass is not null
                         && typeCache.Equals(a.AttributeClass, "Neo.SmartContract.Framework.Attributes.StorageKeySegmentAttribute"))
                     .Select(a => new StorageKeySegment((string)a.ConstructorArguments[0].Value!, (PrimitiveType)a.ConstructorArguments[1].Value!))
                     .ToArray();
@@ -572,7 +572,7 @@ namespace Neo.Compiler
                 writer.WriteString("type", resolver.Resolve(storage.ValueType).AsString());
                 writer.WriteString("prefix", Convert.ToHexString(storage.Prefix.Span));
                 if (storage.Segments.Any())
-                { 
+                {
                     WriteArray(writer, "segments", storage.Segments.Select(s => $"{s.Name},{s.Type}"));
                 }
                 writer.WriteEndObject();

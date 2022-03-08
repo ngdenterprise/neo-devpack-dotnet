@@ -35,7 +35,7 @@ namespace Neo.Compiler
                 SpecialType.System_Object => UnspecifiedContractType.Unspecified,
                 SpecialType.None => ConvertSymbol(symbol),
                 _ => throw new NotSupportedException($"SpecialType {symbol.SpecialType}")
-            }; 
+            };
         }
 
         public override ContractType? VisitArrayType(IArrayTypeSymbol symbol)

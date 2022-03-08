@@ -5,7 +5,7 @@ using System;
 namespace Neo.Compiler
 {
     record StructType(string Name) : ContractType;
-    
+
     enum PrimitiveType : byte
     {
         Boolean,
@@ -65,7 +65,7 @@ namespace Neo.Compiler
                 _ => throw new NotImplementedException($"{nameof(AsString)} {type.GetType().Name}"),
             };
 
-            static string ValidateTypeSource(string typeName) 
+            static string ValidateTypeSource(string typeName)
                 => (typeName.Contains('#') || typeName.Contains('<') || typeName.Contains('>'))
                     ? throw new NotSupportedException($"Invalid type name {typeName}")
                     : typeName;
