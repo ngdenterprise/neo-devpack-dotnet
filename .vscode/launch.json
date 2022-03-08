@@ -10,7 +10,7 @@
             "request": "launch",
             "preLaunchTask": "build",
             "program": "${workspaceFolder}/src/Neo.Compiler.CSharp/bin/Debug/net6.0/nccs.dll",
-            "args": ["--debug", "C:/Users/harry/Source/neo/seattle/samples/nft-sample/token-contract/NeoContributorToken.csproj"],
+            "args": ["--debug", "--no-compress-debug-info", "C:/Users/harry/Source/neo/seattle/samples/nft-sample/token-contract/NeoContributorToken.csproj"],
             "cwd": "C:/Users/harry/Source/neo/seattle/samples/nft-sample/token-contract",
             "console": "internalConsole",
             "stopAtEntry": false
