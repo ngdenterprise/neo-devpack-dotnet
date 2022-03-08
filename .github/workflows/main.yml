@@ -38,15 +38,20 @@ jobs:
           const patch = 1000 + (+REV_LIST_COUNT);
           core.setOutput('prefix', '3.1.' + patch);
 
-    - name: Install debug adapter dependencies
+    - name: restore dependencies
       run: dotnet restore
-    - name: Build + Package debug adapters
-      run: dotnet pack --output ./out --configuration Release --no-restore --verbosity normal --include-symbols /p:VersionPrefix=${{ steps.verInfo.outputs.prefix }} /p:VersionSuffix="storage-schema-preview"
-    - name: Upload debug adapter artifacts
+    - name: Build + Package packages
+      run: dotnet pack --output ./out --configuration Release --no-restore --verbosity normal /p:VersionPrefix=${{ steps.verInfo.outputs.prefix }} /p:VersionSuffix=storage-schema-preview
+    - name: Upload compiler package
       uses: actions/upload-artifact@v2
       with:
-        name: packages
-        path: ./out/*
+        name: compiler
+        path: ./out/Neo.Compiler.CSharp.*.nupkg
+    - name: Upload framework package
+      uses: actions/upload-artifact@v2
+      with:
+        name: framework
+        path: ./out/Neo.SmartContract.Framework.*.nupkg
 
 
 
