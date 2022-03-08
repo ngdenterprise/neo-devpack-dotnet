@@ -2,8 +2,9 @@ name: .NET Core Test and Publish
 
 on:
   push:
-    branches: master
+    branches: storage-schema-preview
   pull_request:
+    branches: storage-schema-preview
 
 env:
   DOTNET_VERSION: 6.0.x
@@ -15,101 +16,39 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+      with:
+        ref: storage-schema-preview
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    - name: Check format
-      run: |
-        dotnet format --verify-no-changes --verbosity diagnostic
-    - name: Add package coverlet.msbuild
-      run: find tests -name *.csproj | xargs -I % dotnet add % package coverlet.msbuild
-    - name: Test Neo.Compiler.CSharp.UnitTests
-      run: dotnet test tests/Neo.Compiler.CSharp.UnitTests /p:CollectCoverage=true /p:CoverletOutput=${GITHUB_WORKSPACE}/coverage/
-    - name: Test Neo.SmartContract.Framework.UnitTests
-      run: dotnet test tests/Neo.SmartContract.Framework.UnitTests /p:CollectCoverage=true /p:CoverletOutput=${GITHUB_WORKSPACE}/coverage/lcov /p:MergeWith=${GITHUB_WORKSPACE}/coverage/coverage.json /p:Exclude=\"[Neo.Compiler.CSharp.UnitTests]*\" /p:CoverletOutputFormat=lcov
-    - name: Coveralls
-      uses: coverallsapp/github-action@master
+    
+    - id: verInfo
+      uses: actions/github-script@v6.0.0
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          let commitHash = '';
+          await exec.exec('git', ['show-ref', '-s', 'v3.1.0'], {
+            listeners = { stdout: (data: Buffer) => { commitHash += data.toString(); } }
+          });
 
-  PublishGithub:
-    # Because sometimes this action is not working as expected we will disable it until determine that it's more stable
-    if: false && github.ref == 'refs/heads/master' && startsWith(github.repository, 'neo-project/')
-    needs: Test
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-    - name: Setup .NET Core
-      uses: actions/setup-dotnet@v1
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    - name: Setup NuGet.exe for use with actions
-      uses: NuGet/setup-nuget@v1
-    - name: Pack with dotnet
-      run: git rev-list --count HEAD | xargs printf "CI%05d" | xargs dotnet pack src/Neo.SmartContract.Framework -c Debug -o out --include-source --version-suffix
-    - name: Publish to Github Packages
-      run: |
-        nuget source Add -Name "GitHub" -Source "https://nuget.pkg.github.com/neo-project/index.json" -UserName neo-project -Password ${GITHUB_TOKEN}
-        nuget push out/*.nupkg -Source "GitHub"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          let count = '';
+          await exec.exec('git', ['rev-list', '--count', commitHash + '..HEAD'], {
+            listeners = { stdout: (data: Buffer) => { count += data.toString(); } }
+          });
 
-  PublishMyGet:
-    if: github.ref == 'refs/heads/master' && startsWith(github.repository, 'neo-project/')
-    needs: Test
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Setup .NET Core
-      uses: actions/setup-dotnet@v1
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    - name: Pack with dotnet
-      run: git rev-list --count HEAD |xargs printf "CI%05d" |xargs dotnet pack src/Neo.SmartContract.Framework -c Debug -o out --include-source --version-suffix
-    - name: Publish to MyGet
-      run: dotnet nuget push out/*.nupkg -s https://www.myget.org/F/neo/api/v2/package -k ${MYGET_TOKEN} -ss https://www.myget.org/F/neo/symbols/api/v2/package -sk ${MYGET_TOKEN}
-      env:
-        MYGET_TOKEN: ${{ secrets.MYGET_TOKEN }}
+          core.setOutput('prefix', '3.1.' + (1000 + (+count));
 
-  Release:
-    if: github.ref == 'refs/heads/master' && startsWith(github.repository, 'neo-project/')
-    needs: Test
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-    - name: Get version
-      id: get_version
-      run: |
-        sudo apt install xmlstarlet
-        find src -name Directory.Build.props | xargs xmlstarlet sel -N i=http://schemas.microsoft.com/developer/msbuild/2003 -t -v "concat('::set-output name=version::v',//i:VersionPrefix/text())" | xargs echo
-    - name: Check tag
-      id: check_tag
-      run: curl -s -I ${{ format('https://github.com/{0}/releases/tag/{1}', github.repository, steps.get_version.outputs.version) }} | head -n 1 | cut -d$' ' -f2 | xargs printf "::set-output name=statusCode::%s" | xargs echo
-    - name: Create release
-      if: steps.check_tag.outputs.statusCode == '404'
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install debug adapter dependencies
+      run: dotnet restore
+    - name: Build + Package debug adapters
+      run: dotnet pack --output ./out --configuration Release --no-restore --verbosity normal --include-symbols /p:VersionPrefix=${{ steps.verInfo.outputs.prefix }} /p:VersionSuffix="storage-schema-preview"
+    - name: Upload debug adapter artifacts
+      uses: actions/upload-artifact@v2
       with:
-        tag_name: ${{ steps.get_version.outputs.version }}
-        release_name: ${{ steps.get_version.outputs.version }}
-        prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
-    - name: Setup .NET Core
-      if: steps.check_tag.outputs.statusCode == '404'
-      uses: actions/setup-dotnet@v1
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    - name: Publish to NuGet
-      if: steps.check_tag.outputs.statusCode == '404'
-      run: |
-        dotnet pack -o out -c Release
-        dotnet nuget push "out/*.nupkg" -s https://api.nuget.org/v3/index.json -k ${NUGET_TOKEN}
-      env:
-        NUGET_TOKEN: ${{ secrets.NUGET_TOKEN }}
+        name: packages
+        path: ./out/*
+
+
+
+
