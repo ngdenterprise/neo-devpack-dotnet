@@ -33,7 +33,7 @@ namespace Neo.Compiler
 {
     public class CompilationContext
     {
-        record struct StructDef(INamedTypeSymbol Struct, IReadOnlyList<IFieldSymbol> Fields);
+        record struct StructDef(INamedTypeSymbol Symbol, IReadOnlyList<IFieldSymbol> Fields);
         record struct StorageKeySegment(string Name, PrimitiveType Type);
         record struct StorageGroup(
             string Name,
@@ -158,9 +158,9 @@ namespace Neo.Compiler
             }
         }
 
-        void DebugWarning(ISymbol symbol, string id, string message, int warningLevel = 1)
+        void DebugWarning(ISymbol? symbol, string id, string message, int warningLevel = 1)
         {
-            var locaction = symbol.Locations.IsEmpty ? null : symbol.Locations[0];
+            var locaction = (symbol?.Locations.IsEmpty ?? true) ? null : symbol.Locations[0];
             var diag = Diagnostic.Create(id: id,
                 category: DiagnosticCategory.Default,
                 message: message,
@@ -193,6 +193,18 @@ namespace Neo.Compiler
 
             foreach (var @struct in structs)
             {
+                if (@struct.IsGenericType)
+                {
+                    DebugWarning(@struct, "NC4101", "Generic structs not supported");
+                    continue;
+                }
+
+                if (@struct.Name.Contains('#') || $"{@struct.ContainingSymbol}".Contains('#'))
+                {
+                    DebugWarning(@struct, "NC4101", "Struct names cannot contain '#'");
+                    continue;
+                }
+
                 var structFields = @struct.GetAllMembers()
                     .OfType<IFieldSymbol>()
                     .Where(f => !f.HasConstantValue && !f.IsStatic);
@@ -202,7 +214,11 @@ namespace Neo.Compiler
                 structDefs.Add(new StructDef(@struct, structFields.ToArray()));
             }
 
-            Debug.Assert(smartContractSymbol is not null);
+            if (smartContractSymbol is null)
+            {
+                DebugWarning(null, "NC4005", "No SmartContract defined, storage groups skipped");
+                return;
+            }
 
             var fields = smartContractSymbol.GetAllMembers().OfType<IFieldSymbol>();
             foreach (var field in fields)
@@ -218,12 +234,13 @@ namespace Neo.Compiler
                     continue;
                 }
 
+                const string PREFIX = "Prefix_";
                 string name = "";
                 INamedTypeSymbol? valueType = null;
                 if (storageGroup.ConstructorArguments.Length == 1)
                 {
-                    name = field.Name.StartsWith("Prefix_", StringComparison.InvariantCultureIgnoreCase)
-                        ? field.Name.Substring(7)
+                    name = field.Name.StartsWith(PREFIX, StringComparison.InvariantCultureIgnoreCase)
+                        ? field.Name.Substring(PREFIX.Length)
                         : field.Name;
                     valueType = storageGroup.ConstructorArguments[0].Value as INamedTypeSymbol;
                 }
@@ -260,12 +277,13 @@ namespace Neo.Compiler
                     .Select(a => new StorageKeySegment((string)a.ConstructorArguments[0].Value!, (PrimitiveType)a.ConstructorArguments[1].Value!))
                     .ToArray();
 
-                var initialSegments = keySegments.Take(keySegments.Length - 1);
-                if (initialSegments.Any(s => s.Type switch
+                if (keySegments.Take(keySegments.Length - 1).Any(s => s.Type switch
                     {
                         PrimitiveType.Address => false,
                         PrimitiveType.Hash160 => false,
                         PrimitiveType.Hash256 => false,
+                        PrimitiveType.PublicKey => false,
+                        PrimitiveType.Signature => false,
                         _ => true,
                     }))
                 {
@@ -460,6 +478,8 @@ namespace Neo.Compiler
 
         static void WriteArray(Utf8JsonWriter writer, string name, IEnumerable<string> values)
         {
+            if (!values.Any()) return;
+
             writer.WritePropertyName(name);
             writer.WriteStartArray();
             foreach (var value in values)
@@ -481,42 +501,17 @@ namespace Neo.Compiler
             WriteArray(writer, "documents", sourceLocations);
 
             var statics = staticFields.OrderBy(kvp => kvp.Value)
-                .Select(t => $"{t.Key.Name},{resolver.Resolve(t.Key.Type).AsString()},{t.Value}");
+                .Select(t => $"{t.Key.Name},{t.Key.Type.AsEncodedType(resolver)},{t.Value}");
             WriteArray(writer, "static-variables", statics);
 
             writer.WritePropertyName("methods");
             writer.WriteStartArray();
             foreach (var m in methodsConverted.Where(p => p.SyntaxNode is not null))
             {
-                writer.WriteStartObject();
-
-                writer.WriteString("id", m.Symbol.Name);
-                writer.WriteString("name", $"{m.Symbol.ContainingType},{m.Symbol.Name}");
-                writer.WriteString("range", $"{m.Instructions[0].Offset}-{m.Instructions[^1].Offset}");
-
-                writer.WritePropertyName("params");
-                writer.WriteStartArray();
-                if (!m.Symbol.IsStatic)
-                {
-                    writer.WriteStringValue($"#this,{resolver.Resolve(m.Symbol.ContainingSymbol).AsString()}");
-                }
-                foreach (var param in m.Symbol.Parameters)
-                {
-                    writer.WriteStringValue($"{param.Name},{resolver.Resolve(param.Type).AsString()}");
-                }
-                writer.WriteEndArray();
-
-                var @return = resolver.Resolve(m.Symbol.ReturnType) switch
-                {
-                    VoidContractType => "#Void",
-                    ContractType t => t.AsString(),
-                };
-                writer.WriteString("return", @return);
-
+                var @params = m.Symbol.Parameters.Select(p => (p.Name, Type: p.Type as ISymbol));
+                if (!m.Symbol.IsStatic) { @params = @params.Prepend(("#this", m.Symbol.ContainingSymbol)); }
                 var vars = m.Variables
-                    .Select(v => $"{v.Symbol.Name},{(resolver.Resolve(v.Symbol.Type).AsString())},{v.SlotIndex}");
-                WriteArray(writer, "variables", vars);
-
+                    .Select(v => $"{v.Symbol.Name},{v.Symbol.Type.AsEncodedType(resolver)},{v.SlotIndex}");
                 var sequencePoints = m.Instructions
                     .Where(p => p.SourceLocation is not null)
                     .Select(p =>
@@ -525,8 +520,15 @@ namespace Neo.Compiler
                         var index = Array.IndexOf(sourceLocations, p.SourceLocation.SourceTree!.FilePath);
                         return $"{p.Offset}[{index}]{span.StartLinePosition.Line + 1}:{span.StartLinePosition.Character + 1}-{span.EndLinePosition.Line + 1}:{span.EndLinePosition.Character + 1}";
                     });
-                WriteArray(writer, "sequence-points", sequencePoints);
 
+                writer.WriteStartObject();
+                writer.WriteString("name", $"{m.Symbol.ContainingType},{m.Symbol.Name}");
+                writer.WriteString("range", $"{m.Instructions[0].Offset}-{m.Instructions[^1].Offset}");
+                WriteArray(writer, "params", @params.Select(p => $"{p.Name},{p.Type.AsEncodedType(resolver)}"));
+
+                if (!m.Symbol.ReturnsVoid) writer.WriteString("return", m.Symbol.ReturnType.AsEncodedType(resolver));
+                WriteArray(writer, "variables", vars);
+                WriteArray(writer, "sequence-points", sequencePoints);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -535,30 +537,26 @@ namespace Neo.Compiler
             writer.WriteStartArray();
             foreach (var e in eventsExported)
             {
-                writer.WriteStartObject();
-
-                writer.WriteString("id", e.Symbol.Name);
-                writer.WriteString("name", $"{e.Symbol.ContainingType},{e.Symbol.Name}");
-
                 var symbol = (IEventSymbol)e.Symbol;
                 var method = ((INamedTypeSymbol)symbol.Type).DelegateInvokeMethod ?? throw new Exception();
-                var @params = method.Parameters
-                    .Select(p => $"{p.Name},{resolver.Resolve(p.Type).AsString()}");
-                WriteArray(writer, "params", @params);
+                var @params = method.Parameters.Select(p => $"{p.Name},{p.Type.AsEncodedType(resolver)}");
 
+                writer.WriteStartObject();
+                writer.WriteString("name", $"{e.Symbol.ContainingType},{e.Symbol.Name}");
+                WriteArray(writer, "params", @params);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
 
             writer.WritePropertyName("structs");
             writer.WriteStartArray();
-            foreach (var (@struct, fields) in structDefs)
+            foreach (var @struct in structDefs)
             {
+                var fields = @struct.Fields.Select(f => $"{f.Name},{f.Type.AsEncodedType(resolver)}");
+                
                 writer.WriteStartObject();
-                writer.WriteString("id", @struct.Name);
-                writer.WriteString("name", $"{@struct.ContainingSymbol}.{@struct.Name}");
-                WriteArray(writer, "fields", fields
-                    .Select(f => $"{f.Name},{resolver.Resolve(f.Type).AsString()}"));
+                writer.WriteString("name", $"{@struct.Symbol.ContainingSymbol},{@struct.Symbol.Name}");
+                WriteArray(writer, "fields", fields);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -567,14 +565,13 @@ namespace Neo.Compiler
             writer.WriteStartArray();
             foreach (var storage in storageGroups)
             {
+                var segments = storage.Segments.Select(s => $"{s.Name},{s.Type}");
+
                 writer.WriteStartObject();
-                writer.WriteString("name", storage.Name);
-                writer.WriteString("type", resolver.Resolve(storage.ValueType).AsString());
+                writer.WriteString("name", $",{storage.Name}");
+                writer.WriteString("type", resolver.Resolve(storage.ValueType).AsEncodedType());
                 writer.WriteString("prefix", Convert.ToHexString(storage.Prefix.Span));
-                if (storage.Segments.Any())
-                {
-                    WriteArray(writer, "segments", storage.Segments.Select(s => $"{s.Name},{s.Type}"));
-                }
+                WriteArray(writer, "segments", segments);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();

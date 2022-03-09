@@ -22,7 +22,6 @@ namespace Neo.Compiler
             {
                 SpecialType.System_Boolean => PrimitiveContractType.Boolean,
                 SpecialType.System_String => PrimitiveContractType.String,
-                SpecialType.System_Void => VoidContractType.Void,
                 SpecialType.System_Char => PrimitiveContractType.Integer,
                 SpecialType.System_Byte => PrimitiveContractType.Integer,
                 SpecialType.System_SByte => PrimitiveContractType.Integer,
@@ -57,7 +56,9 @@ namespace Neo.Compiler
             if (typeCache.Equals(symbol, "Neo.UInt256")) return PrimitiveContractType.Hash256;
 
             if (symbol.AllInterfaces.Any(i => typeCache.Equals(i, "Neo.SmartContract.Framework.IApiInterface")))
-                return new InteropContractType(symbol);
+            {
+                return new InteropContractType(MakeStructRef(symbol));
+            }
 
             if (symbol.IsGenericType)
             {
@@ -79,9 +80,14 @@ namespace Neo.Compiler
                 throw new NotSupportedException($"Only List<T> and Map<K,V> concrete generic types are supported");
             }
 
-            return SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, typeCache.FindType("Neo.UInt160").ContainingAssembly)
-                ? new NeoScfxContractType(symbol)
-                : new SymbolContractType(symbol);
+            return MakeStructRef(symbol);
+
+            StructRefContractType MakeStructRef(INamedTypeSymbol symbol)
+            {
+                var ns = SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, typeCache.FindType("Neo.UInt160").ContainingAssembly)
+                    ? "#Neo" : $"{symbol.ContainingSymbol}";
+                return new StructRefContractType(symbol.Name, ns);
+            }
         }
     }
 }

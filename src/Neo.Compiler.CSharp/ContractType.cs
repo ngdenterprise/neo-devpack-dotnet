@@ -4,8 +4,6 @@ using System;
 
 namespace Neo.Compiler
 {
-    record StructType(string Name) : ContractType;
-
     enum PrimitiveType : byte
     {
         Boolean,
@@ -22,9 +20,8 @@ namespace Neo.Compiler
     abstract record ContractType();
 
     record ArrayContractType(ContractType Type) : ContractType;
-    record InteropContractType(INamedTypeSymbol Symbol) : ContractType;
+    record InteropContractType(StructRefContractType StructRef) : ContractType;
     record MapContractType(PrimitiveType KeyType, ContractType ValueType) : ContractType;
-    record NeoScfxContractType(INamedTypeSymbol Symbol) : ContractType;
 
     record PrimitiveContractType(PrimitiveType Type) : ContractType
     {
@@ -38,37 +35,29 @@ namespace Neo.Compiler
         public readonly static PrimitiveContractType Signature = new PrimitiveContractType(PrimitiveType.Signature);
         public readonly static PrimitiveContractType String = new PrimitiveContractType(PrimitiveType.String);
     }
-    record SymbolContractType(INamedTypeSymbol Symbol) : ContractType;
+    record StructRefContractType(string Name, string Namespace) : ContractType;
+
     record UnspecifiedContractType() : ContractType
     {
         public readonly static UnspecifiedContractType Unspecified = new UnspecifiedContractType();
     }
-    record VoidContractType() : ContractType
-    {
-        public readonly static VoidContractType Void = new VoidContractType();
-    }
 
     static class ContractTypeExtensions
     {
-        public static string AsString(this ContractType type)
+        public static string AsEncodedType(this ISymbol @this, ContractTypeVisitor resolver) => resolver.Resolve(@this).AsEncodedType();
+
+        public static string AsEncodedType(this ContractType type)
         {
             return type switch
             {
-                ArrayContractType a => $"Array<{a.Type.AsString()}>",
-                InteropContractType i => $"Interop<{i.Symbol}>",
-                MapContractType m => $"Map<{m.KeyType}:{m.ValueType.AsString()}>",
-                NeoScfxContractType n => $"Neo#{n.Symbol.Name}",
+                ArrayContractType a => $"#Array<{a.Type.AsEncodedType()}>",
+                InteropContractType i => $"#Interop<{i.StructRef.AsEncodedType()}>",
+                MapContractType m => $"#Map<#{m.KeyType}:{m.ValueType.AsEncodedType()}>",
                 PrimitiveContractType p => $"#{p.Type}",
-                SymbolContractType s => ValidateTypeSource($"{s.Symbol.ContainingSymbol}.{s.Symbol.Name}"),
+                StructRefContractType s => $"{s.Namespace}.{s.Name}",
                 UnspecifiedContractType => "#Unspecified",
-                VoidContractType => throw new NotSupportedException($"{nameof(AsString)} {nameof(VoidContractType)}"),
-                _ => throw new NotImplementedException($"{nameof(AsString)} {type.GetType().Name}"),
+                _ => throw new NotImplementedException($"{nameof(AsEncodedType)} {type.GetType().Name}"),
             };
-
-            static string ValidateTypeSource(string typeName)
-                => (typeName.Contains('#') || typeName.Contains('<') || typeName.Contains('>'))
-                    ? throw new NotSupportedException($"Invalid type name {typeName}")
-                    : typeName;
         }
     }
 }
