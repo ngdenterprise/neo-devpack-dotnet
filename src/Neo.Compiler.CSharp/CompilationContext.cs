@@ -565,7 +565,7 @@ namespace Neo.Compiler
             writer.WriteStartArray();
             foreach (var storage in storageGroups)
             {
-                var segments = storage.Segments.Select(s => $"{s.Name},{s.Type}");
+                var segments = storage.Segments.Select(s => $"{s.Name},#{s.Type}");
 
                 writer.WriteStartObject();
                 writer.WriteString("name", $",{storage.Name}");
