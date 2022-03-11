@@ -491,7 +491,13 @@ namespace Neo.Compiler
 
         public void WriteDebugInfo(Utf8JsonWriter writer, SmartContract.NefFile nef)
         {
-            string[] sourceLocations = GetSourceLocations(compilation).Distinct().ToArray();
+            var sourceLocations = methodsConverted
+                .SelectMany(mz => mz.Instructions)
+                .Select(i => i.SourceLocation?.SourceTree?.FilePath)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Cast<string>()
+                .Distinct()
+                .ToArray();
             ContractTypeVisitor resolver = new(typeCache);
 
             writer.WriteStartObject();
@@ -506,6 +512,7 @@ namespace Neo.Compiler
 
             writer.WritePropertyName("methods");
             writer.WriteStartArray();
+
             foreach (var m in methodsConverted.Where(p => p.SyntaxNode is not null))
             {
                 var @params = m.Symbol.Parameters.Select(p => (p.Name, Type: p.Type as ISymbol));
@@ -518,6 +525,7 @@ namespace Neo.Compiler
                     {
                         FileLinePositionSpan span = p.SourceLocation!.GetLineSpan();
                         var index = Array.IndexOf(sourceLocations, p.SourceLocation.SourceTree!.FilePath);
+                        if (index == -1) throw new Exception("Invalid document");
                         return $"{p.Offset}[{index}]{span.StartLinePosition.Line + 1}:{span.StartLinePosition.Character + 1}-{span.EndLinePosition.Line + 1}:{span.EndLinePosition.Character + 1}";
                     });
 
