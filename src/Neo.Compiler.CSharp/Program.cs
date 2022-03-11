@@ -134,7 +134,7 @@ namespace Neo.Compiler
                     var writerOptions = new System.Text.Json.JsonWriterOptions
                     {
                         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                        Indented = true
+                        Indented = options.NoCompressDebugInfo
                     };
 
                     if (options.NoCompressDebugInfo)
