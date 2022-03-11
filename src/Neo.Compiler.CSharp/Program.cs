@@ -119,12 +119,14 @@ namespace Neo.Compiler
             if (context.Success)
             {
                 folder = options.Output ?? Path.Combine(folder, "bin", "sc");
+                var contractName = string.IsNullOrEmpty(options.ContractName)
+                    ? context.ContractName : options.ContractName;
                 Directory.CreateDirectory(folder);
-                string path = Path.Combine(folder, $"{context.ContractName}.nef");
+                string path = Path.Combine(folder, $"{contractName}.nef");
                 SmartContract.NefFile nef = context.CreateExecutable();
                 File.WriteAllBytes(path, nef.ToArray());
                 Console.WriteLine($"Created {path}");
-                path = Path.Combine(folder, $"{context.ContractName}.manifest.json");
+                path = Path.Combine(folder, $"{contractName}.manifest.json");
                 File.WriteAllBytes(path, context.CreateManifest().ToByteArray(false));
                 Console.WriteLine($"Created {path}");
                 if (options.Debug)
@@ -137,17 +139,17 @@ namespace Neo.Compiler
 
                     if (options.NoCompressDebugInfo)
                     {
-                        path = Path.Combine(folder, $"{context.ContractName}.debug.json");
+                        path = Path.Combine(folder, $"{contractName}.debug.json");
                         using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
                         using var writer = new System.Text.Json.Utf8JsonWriter(fs, writerOptions);
                         context.WriteDebugInfo(writer, nef);
                     }
                     else
                     {
-                        path = Path.Combine(folder, $"{context.ContractName}.nefdbgnfo");
+                        path = Path.Combine(folder, $"{contractName}.nefdbgnfo");
                         using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
                         using ZipArchive archive = new(fs, ZipArchiveMode.Create);
-                        using Stream stream = archive.CreateEntry($"{context.ContractName}.debug.json").Open();
+                        using Stream stream = archive.CreateEntry($"{contractName}.debug.json").Open();
                         using var writer = new System.Text.Json.Utf8JsonWriter(stream, writerOptions);
                         context.WriteDebugInfo(writer, nef);
                     }
@@ -155,7 +157,7 @@ namespace Neo.Compiler
                 }
                 if (options.Assembly)
                 {
-                    path = Path.Combine(folder, $"{context.ContractName}.asm");
+                    path = Path.Combine(folder, $"{contractName}.asm");
                     File.WriteAllText(path, context.CreateAssembly());
                     Console.WriteLine($"Created {path}");
                 }
