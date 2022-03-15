@@ -193,9 +193,9 @@ namespace Neo.Compiler
 
             foreach (var @struct in structs)
             {
-                if (@struct.IsGenericType)
+                if (@struct.IsUnboundGenericType)
                 {
-                    DebugWarning(@struct, "NC4101", "Generic structs not supported");
+                    DebugWarning(@struct, "NC4101", "Unbound Generic structs not supported");
                     continue;
                 }
 

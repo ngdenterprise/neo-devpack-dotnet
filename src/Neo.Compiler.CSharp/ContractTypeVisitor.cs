@@ -77,7 +77,10 @@ namespace Neo.Compiler
                     return new ArrayContractType(type);
                 }
 
-                throw new NotSupportedException($"Only List<T> and Map<K,V> concrete generic types are supported");
+                if (symbol.IsUnboundGenericType)
+                {
+                    throw new NotSupportedException($"Only List<T> and Map<K,V> concrete generic types are supported");
+                }
             }
 
             return MakeStructRef(symbol);
