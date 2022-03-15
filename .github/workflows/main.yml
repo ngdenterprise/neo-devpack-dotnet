@@ -64,5 +64,9 @@ jobs:
       run: |
           dotnet tool install -g sleet
           sleet push ./out --skip-existing
-
+    - name: Create/Update tag
+      if: ${{ github.event_name == 'workflow_dispatch'}}
+      uses: rickstaa/action-create-tag@v1.2.2
+      with:
+        tag: ${{ steps.verInfo.outputs.prefix }}
 
