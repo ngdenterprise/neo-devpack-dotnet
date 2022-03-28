@@ -45,6 +45,7 @@ namespace Neo.Compiler
         private static readonly Dictionary<string, MetadataReference> metaReferences = new();
         private readonly Compilation compilation;
         private INamedTypeSymbol? smartContractSymbol;
+        private string? assemblyName, displayName, className;
         private readonly List<Diagnostic> diagnostics = new();
         private readonly HashSet<string> supportedStandards = new();
         private readonly List<AbiMethod> methodsExported = new();
@@ -55,8 +56,8 @@ namespace Neo.Compiler
         private readonly MethodConvertCollection methodsConverted = new();
         private readonly MethodConvertCollection methodsForward = new();
         private readonly List<MethodToken> methodTokens = new();
-        private readonly Dictionary<IFieldSymbol, byte> staticFields = new();
-        private readonly Dictionary<ITypeSymbol, byte> vtables = new();
+        private readonly Dictionary<IFieldSymbol, byte> staticFields = new(SymbolEqualityComparer.Default);
+        private readonly Dictionary<ITypeSymbol, byte> vtables = new(SymbolEqualityComparer.Default);
         private byte[]? script;
         private readonly List<StructDef> structDefs = new();
         private readonly List<StorageGroup> storageGroups = new();
@@ -64,7 +65,7 @@ namespace Neo.Compiler
 
         public bool Success => diagnostics.All(p => p.Severity != DiagnosticSeverity.Error);
         public IReadOnlyList<Diagnostic> Diagnostics => diagnostics;
-        public string? ContractName { get; private set; }
+        public string? ContractName => displayName ?? assemblyName ?? className;
         private string? Source { get; set; }
         internal Options Options { get; private set; }
         internal IEnumerable<IFieldSymbol> StaticFieldSymbols => staticFields.OrderBy(p => p.Value).Select(p => p.Key);
@@ -90,7 +91,6 @@ namespace Neo.Compiler
             this.compilation = compilation;
             this.typeCache = new(this.compilation);
             this.Options = options;
-            this.ContractName = options.ContractName;
         }
 
         private void RemoveEmptyInitialize()
@@ -127,7 +127,7 @@ namespace Neo.Compiler
 
         private void Compile()
         {
-            HashSet<INamedTypeSymbol> processed = new();
+            HashSet<INamedTypeSymbol> processed = new(SymbolEqualityComparer.Default);
             foreach (SyntaxTree tree in compilation.SyntaxTrees)
             {
                 SemanticModel model = compilation.GetSemanticModel(tree);
@@ -393,7 +393,7 @@ namespace Neo.Compiler
         {
             Compilation compilation = GetCompilation(csproj, out string assemblyName);
             CompilationContext context = new(compilation, options);
-            context.ContractName ??= assemblyName;
+            context.assemblyName = assemblyName;
             context.Compile();
             return context;
         }
@@ -640,7 +640,7 @@ namespace Neo.Compiler
         {
             switch (syntax)
             {
-                case NamespaceDeclarationSyntax @namespace:
+                case BaseNamespaceDeclarationSyntax @namespace:
                     foreach (MemberDeclarationSyntax member in @namespace.Members)
                         ProcessMemberDeclaration(processed, model, member);
                     break;
@@ -667,7 +667,7 @@ namespace Neo.Compiler
                     switch (attribute.AttributeClass!.Name)
                     {
                         case nameof(DisplayNameAttribute):
-                            ContractName = (string)attribute.ConstructorArguments[0].Value!;
+                            displayName = (string)attribute.ConstructorArguments[0].Value!;
                             break;
                         case nameof(scfx.Neo.SmartContract.Framework.Attributes.ContractSourceCodeAttribute):
                             Source = (string)attribute.ConstructorArguments[0].Value!;
@@ -689,7 +689,7 @@ namespace Neo.Compiler
                             break;
                     }
                 }
-                ContractName ??= symbol.Name;
+                className = symbol.Name;
             }
             foreach (ISymbol member in symbol.GetAllMembers())
             {

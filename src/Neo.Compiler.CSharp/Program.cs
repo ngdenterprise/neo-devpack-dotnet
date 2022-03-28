@@ -13,6 +13,7 @@ using Neo.IO;
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.CommandLine.NamingConventionBinder;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -28,7 +29,7 @@ namespace Neo.Compiler
             {
                 new Argument<string[]>("paths", "The path of the project file, project directory or source files."),
                 new Option<string>(new[] { "-o", "--output" }, "Specifies the output directory."),
-                new Option<string>("--contract-name", "Specifies the base name of the output files."),
+                new Option<string>("--base-name", "Specifies the base name of the output files."),
                 new Option<bool>(new[] { "-d", "--debug" }, "Indicates whether to generate debugging information."),
                 new Option<bool>("--assembly", "Indicates whether to generate assembly."),
                 new Option<bool>("--no-optimize", "Instruct the compiler not to optimize the code."),
@@ -36,45 +37,53 @@ namespace Neo.Compiler
                 new Option<byte>("--address-version", () => ProtocolSettings.Default.AddressVersion, "Indicates the address version used by the compiler."),
                 new Option<bool>("--no-compress-debug-info", "Indicates whether to compress debug info"),
             };
-            rootCommand.Handler = CommandHandler.Create<RootCommand, Options, string[]>(Handle);
+            rootCommand.Handler = CommandHandler.Create<RootCommand, Options, string[], InvocationContext>(Handle);
             return rootCommand.Invoke(args);
         }
 
-        private static int Handle(RootCommand command, Options options, string[] paths)
+        private static void Handle(RootCommand command, Options options, string[] paths, InvocationContext context)
         {
             if (paths is null || paths.Length == 0)
             {
-                var ret = ProcessDirectory(options, Environment.CurrentDirectory);
-                if (ret == 2)
+                context.ExitCode = ProcessDirectory(options, Environment.CurrentDirectory);
+                if (context.ExitCode == 2)
                 {
                     // Display help without args
                     command.Invoke("--help");
                 }
-                return ret;
+                return;
             }
             paths = paths.Select(p => Path.GetFullPath(p)).ToArray();
             if (paths.Length == 1)
             {
                 string path = paths[0];
                 if (Directory.Exists(path))
-                    return ProcessDirectory(options, path);
+                {
+                    context.ExitCode = ProcessDirectory(options, path);
+                    return;
+                }
                 if (File.Exists(path) && Path.GetExtension(path).ToLowerInvariant() == ".csproj")
-                    return ProcessCsproj(options, path);
+                {
+                    context.ExitCode = ProcessCsproj(options, path);
+                    return;
+                }
             }
             foreach (string path in paths)
             {
                 if (Path.GetExtension(path).ToLowerInvariant() != ".cs")
                 {
                     Console.Error.WriteLine("The files must have a .cs extension.");
-                    return 1;
+                    context.ExitCode = 1;
+                    return;
                 }
                 if (!File.Exists(path))
                 {
                     Console.Error.WriteLine($"The file \"{path}\" doesn't exist.");
-                    return 1;
+                    context.ExitCode = 1;
+                    return;
                 }
             }
-            return ProcessSources(options, Path.GetDirectoryName(paths[0])!, paths);
+            context.ExitCode = ProcessSources(options, Path.GetDirectoryName(paths[0])!, paths);
         }
 
         private static int ProcessDirectory(Options options, string path)
@@ -118,15 +127,14 @@ namespace Neo.Compiler
             }
             if (context.Success)
             {
+                string baseName = options.BaseName ?? context.ContractName!;
                 folder = options.Output ?? Path.Combine(folder, "bin", "sc");
-                var contractName = string.IsNullOrEmpty(options.ContractName)
-                    ? context.ContractName : options.ContractName;
                 Directory.CreateDirectory(folder);
-                string path = Path.Combine(folder, $"{contractName}.nef");
+                string path = Path.Combine(folder, $"{baseName}.nef");
                 SmartContract.NefFile nef = context.CreateExecutable();
                 File.WriteAllBytes(path, nef.ToArray());
                 Console.WriteLine($"Created {path}");
-                path = Path.Combine(folder, $"{contractName}.manifest.json");
+                path = Path.Combine(folder, $"{baseName}.manifest.json");
                 File.WriteAllBytes(path, context.CreateManifest().ToByteArray(false));
                 Console.WriteLine($"Created {path}");
                 if (options.Debug)
@@ -139,17 +147,17 @@ namespace Neo.Compiler
 
                     if (options.NoCompressDebugInfo)
                     {
-                        path = Path.Combine(folder, $"{contractName}.debug.json");
+                        path = Path.Combine(folder, $"{baseName}.debug.json");
                         using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
                         using var writer = new System.Text.Json.Utf8JsonWriter(fs, writerOptions);
                         context.WriteDebugInfo(writer, nef);
                     }
                     else
                     {
-                        path = Path.Combine(folder, $"{contractName}.nefdbgnfo");
+                        path = Path.Combine(folder, $"{baseName}.nefdbgnfo");
                         using FileStream fs = new(path, FileMode.Create, FileAccess.Write);
                         using ZipArchive archive = new(fs, ZipArchiveMode.Create);
-                        using Stream stream = archive.CreateEntry($"{contractName}.debug.json").Open();
+                        using Stream stream = archive.CreateEntry($"{baseName}.debug.json").Open();
                         using var writer = new System.Text.Json.Utf8JsonWriter(stream, writerOptions);
                         context.WriteDebugInfo(writer, nef);
                     }
@@ -157,7 +165,7 @@ namespace Neo.Compiler
                 }
                 if (options.Assembly)
                 {
-                    path = Path.Combine(folder, $"{contractName}.asm");
+                    path = Path.Combine(folder, $"{baseName}.asm");
                     File.WriteAllText(path, context.CreateAssembly());
                     Console.WriteLine($"Created {path}");
                 }
