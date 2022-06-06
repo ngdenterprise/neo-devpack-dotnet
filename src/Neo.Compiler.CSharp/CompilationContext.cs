@@ -504,7 +504,7 @@ namespace Neo.Compiler
 
             writer.WriteStartObject();
             writer.WriteNumber("version", 2);
-            writer.WriteString("hash", $"{nef.Script.ToScriptHash()}");
+            writer.WriteString("hash", $"{nef.Script.Span.ToScriptHash()}");
             writer.WriteNumber("checksum", nef.CheckSum);
             WriteArray(writer, "documents", sourceLocations);
 

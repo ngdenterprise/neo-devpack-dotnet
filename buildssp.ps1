@@ -1,8 +1,8 @@
-$hash = git show-ref -s v3.1.0
+$hash = git show-ref -s v3.3.0
 if (-not $?) { throw "git show-ref failed"}
 $count = git rev-list --count "$hash..HEAD"
 if (-not $?) { throw "git rev-list failed"}
-$prefix = "3.1.$(([int]$count) + 1000)"
+$prefix = "3.3.$(([int]$count) + 1000)"
 echo $prefix
 
 $outdir = "./ssp-out"
