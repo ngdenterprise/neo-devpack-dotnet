@@ -1,5 +1,8 @@
 name: Build Packages
 
+# this action can be triggered from the command line:
+#   gh workflow run 21407237 -r storage-schema-preview -R ngdenterprise/neo-devpack-dotnet
+
 on:
   push:
     branches: storage-schema-preview
