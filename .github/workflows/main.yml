@@ -25,10 +25,8 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - id: showRef
-      run: echo "::set-output name=hash::$(git show-ref -s v3.3.0)"
     - id: revListCount
-      run: echo "::set-output name=count::$(git rev-list --count ${{ steps.showRef.outputs.hash }}..HEAD)"
+      run: echo "::set-output name=count::$(git rev-list --count c7b89cd175ca73b5636b5903587e835cfc934fb7..HEAD)"
     - id: verInfo
       uses: actions/github-script@v6.0.0
       env:
