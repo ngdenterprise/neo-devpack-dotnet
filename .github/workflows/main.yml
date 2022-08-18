@@ -38,7 +38,7 @@ jobs:
         script: |
           const { REV_LIST_COUNT } = process.env;
           const patch = 1000 + (+REV_LIST_COUNT);
-          core.setOutput('prefix', '3.3.' + patch);
+          core.setOutput('prefix', '3.4.' + patch);
 
     - name: restore dependencies
       run: dotnet restore

@@ -1,4 +1,4 @@
-$hash = git show-ref -s v3.3.0
+$hash = git show-ref -s v3.4.0
 if (-not $?) { throw "git show-ref failed"}
 $count = git rev-list --count "$hash..HEAD"
 if (-not $?) { throw "git rev-list failed"}
